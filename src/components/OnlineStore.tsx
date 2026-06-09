@@ -31,6 +31,7 @@ import {
   FileCode
 } from 'lucide-react';
 import { IndustryType } from '../types';
+import MarkdownCodeEditor from './MarkdownCodeEditor';
 
 interface OnlineStoreProps {
   selectedIndustry: IndustryType;
@@ -585,9 +586,6 @@ export default function OnlineStore({ selectedIndustry, addLog }: OnlineStorePro
             </button>
             <span className="w-1.5 h-3 bg-[#07C2E3] rounded-xs"></span>
             <span className="text-xs font-black text-white">{editingTheme.name}</span>
-            <span className="text-[10px] bg-slate-805 text-slate-405 border border-slate-700 px-1.5 rounded uppercase font-mono">
-              Shopify Core Editor v2.1
-            </span>
           </div>
 
           {/* Scale Frame controls */}
@@ -621,7 +619,7 @@ export default function OnlineStore({ selectedIndustry, addLog }: OnlineStorePro
               className="bg-[#07C2E3] hover:bg-[#06B2D0] text-slate-900 font-extrabold px-3 py-1.5 rounded text-xs transition-colors border-none cursor-pointer flex items-center gap-1.5 uppercase font-sans"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>保存主题并发布部署 (Save Changes)</span>
+              <span>保存主题</span>
             </button>
           </div>
         </div>
@@ -1071,12 +1069,9 @@ export default function OnlineStore({ selectedIndustry, addLog }: OnlineStorePro
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-4 bg-[#07C2E3] rounded-sm"></span>
             <h2 className="text-sm font-black tracking-tight text-slate-900 uppercase">
-              主题中心与网店发布 (Shopify Theme Suite)
+              主题中心
             </h2>
           </div>
-          <p className="text-[10px] text-slate-400 font-mono mt-0.5 uppercase tracking-wide">
-            One-click AI builder, Theme store, zip validators & Live layouts customizable
-          </p>
         </div>
 
         {/* Global tab panels switch selectors */}
@@ -1328,8 +1323,8 @@ export default function OnlineStore({ selectedIndustry, addLog }: OnlineStorePro
               {/* Draft installed list templates */}
               <div className="space-y-3">
                 <div className="flex justify-between items-center border-b border-slate-100 pb-1.5">
-                  <span className="text-[10px] text-slate-400 font-mono font-black uppercase">开发中草稿与非活动主题 (Draft Installed Templates)</span>
-                  <span className="text-[9px] text-slate-400 font-medium font-sans">非发布态可无限复制、重置</span>
+                  <span className="text-[10px] text-slate-900 font-mono font-black uppercase">DRAFT ARCHIVES ({themes.filter(t => t.status !== 'Published').length})</span>
+                  <span className="text-[9px] text-slate-500 font-mono font-semibold">STAGE: DRAFT_ONLY</span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1507,8 +1502,8 @@ export default function OnlineStore({ selectedIndustry, addLog }: OnlineStorePro
                     <Upload className="w-4 h-4 text-[#07C2E3]" />
                     <span>标准 ZIP 主题压缩包上传</span>
                   </h4>
-                  <p className="text-[10px] text-slate-400">
-                    支持标准的 Commerce OS 主题包。内部必须包含 theme.json、templates/ 目录、sections/ 目录及 assets/。
+                  <p className="text-[10px] text-[#07C2E3] font-mono uppercase font-bold">
+                    ZIP PROTOCOL V1.0 • APPROVED ARCHITECTURE ONLY
                   </p>
                 </div>
 
@@ -1554,8 +1549,8 @@ export default function OnlineStore({ selectedIndustry, addLog }: OnlineStorePro
                     <Import className="w-4 h-4 text-[#07C2E3]" />
                     <span>Shopify Premium Theme 直接导入并解译</span>
                   </h4>
-                  <p className="text-[10px] text-slate-400">
-                    一键解包并智能翻译 Shopify Liquid 标签过滤器，转换 blocks, snippets。直接编译成兼容 HTML/CSS 结构。
+                  <p className="text-[10px] text-[#07C2E3] font-mono uppercase font-bold">
+                    LIQUID PARSER CORE • ONLINE COMPILING STATUS
                   </p>
                 </div>
 
@@ -1909,12 +1904,13 @@ export default function OnlineStore({ selectedIndustry, addLog }: OnlineStorePro
 
               <div className="space-y-1">
                 <span className="text-[10px] text-slate-400 font-mono font-bold">HTML / MD 文档流深度主内容</span>
-                <textarea
-                  rows={5}
+                <MarkdownCodeEditor
                   value={pageContent}
-                  onChange={(e) => setPageContent(e.target.value)}
+                  onChange={val => setPageContent(val)}
                   placeholder="### 全欧洲放心退款说明...  \n在欧盟任何港口下单均享受标准无理由退流保障..."
-                  className="w-full p-3 bg-slate-50 border border-slate-200 focus:border-[#07C2E3] focus:bg-white rounded font-medium focus:outline-none"
+                  rows={6}
+                  label={`Edit Page: ${pageTitle || 'New Page'}`}
+                  aiContext={`E-commerce storefront CMS page. Title: ${pageTitle}, Slug: ${pageSlug}`}
                 />
               </div>
 

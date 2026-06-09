@@ -45,9 +45,10 @@ import {
   Coins,
   Bot,
   Globe,
-  Truck
+  Truck,
+  Mail
 } from 'lucide-react';
-import { IndustryType, TenantConfig, ProductItem, OrderItem, AIEmployee, Workflow, WorkflowNode, KnowledgeDoc, McpTool, AppMarketItem, CollaborationLog, SourcingRecommendation, CustomerItem } from './types';
+import { IndustryType, TenantConfig, ProductItem, OrderItem, AIEmployee, Workflow, WorkflowNode, KnowledgeDoc, McpTool, AppMarketItem, CollaborationLog, SourcingRecommendation, CustomerItem, AIContext } from './types';
 import { INDUSTRY_PRESETS, COMMON_MCP_TOOLS, APP_MARK_PRESETS, PLATFORM_STATS } from './data';
 import { DOCTREE_DATA, DocTreeNode } from './doctreeData';
 import DocTreeViewer from './components/DocTreeViewer';
@@ -67,15 +68,83 @@ import MarketingCenter from './components/MarketingCenter';
 import FinanceCenter from './components/FinanceCenter';
 import PaymentCenter from './components/PaymentCenter';
 import OnlineStore from './components/OnlineStore';
+import AIEmployeeCenter from './components/AIEmployeeCenter';
+import EmployeeCenter from './components/EmployeeCenter';
+import RolesCenter from './components/RolesCenter';
+import EnterpriseSettings from './components/EnterpriseSettings';
+import ShopifyDocsFinder from './components/ShopifyDocsFinder';
+import PoliciesManagement from './components/PoliciesManagement';
+import SuperAdminCenter from './components/SuperAdminCenter';
+import { 
+  runtimeContextManager, 
+  mapIndustry, 
+  mapPage, 
+  getCountryForIndustry, 
+  getTenantInfo,
+  ReactAIContextProvider
+} from './context/AIContextProvider';
+import { aiRuntimeStore } from './store/aiRuntimeStore';
+import { AIContextService } from './services/AIContextService';
 
 export default function App() {
   // Active states
-  const [viewMode, setViewMode] = useState<'landing' | 'register' | 'industry' | 'config' | 'provisioning' | 'app'>('landing');
+  const [viewMode, setViewMode] = useState<'landing' | 'register' | 'industry' | 'config' | 'provisioning' | 'app'>('provisioning');
   const [companyName, setCompanyName] = useState<string>('极光数字科技有限公司');
   const [selectedIndustry, setSelectedIndustry] = useState<IndustryType>('retail');
-  const [activeTab, setActiveTab] = useState<'command' | 'sales' | 'products' | 'orders' | 'logistics' | 'customers' | 'marketing' | 'finance' | 'payments' | 'agents' | 'knowledge' | 'visual-workflow' | 'marketplace' | 'employees' | 'roles' | 'settings' | 'mcp' | 'doctree' | 'online-store'>('command');
-  const [isCommandCenterOpen, setIsCommandCenterOpen] = useState(false);
+  const [activeTab, setActiveTab ] = useState<string>('command');
+  const [adminMode, setAdminMode] = useState<'merchant' | 'super_admin'>('merchant');
+  const [globalDefaultModel, setGlobalDefaultModel] = useState<string>('gemini-2.5-flash');
+  const [tenants, setTenants] = useState<TenantConfig[]>([
+    { id: 't_retail', companyName: '米兰风尚服装批发集团', industry: 'retail', storeName: '米兰风尚女装批发店', status: 'active', aiBudget: 500, aiSpent: 124.5, createdAt: '2026-01-12' },
+    { id: 't_food', companyName: '慕尼黑中餐连锁配送柜', industry: 'food', storeName: '慕尼黑私房菜配送店', status: 'active', aiBudget: 200, aiSpent: 18.2, createdAt: '2026-02-18' },
+    { id: 't_manufacturing', companyName: '柏林智慧电器百货商行', industry: 'manufacturing', storeName: '智慧电器多门店直销店', status: 'active', aiBudget: 1000, aiSpent: 418.2, createdAt: '2026-03-01' },
+    { id: 't_healthcare', companyName: '巴黎名品商场POS收银柜部', industry: 'healthcare', storeName: '巴黎高端香水POS快速结算端', status: 'active', aiBudget: 1500, aiSpent: 890.0, createdAt: '2026-03-24' },
+    { id: 't_service', companyName: '罗马皇家女子美容Spa会所', industry: 'service', storeName: '罗马会所美容线上预订端', status: 'active', aiBudget: 400, aiSpent: 122.5, createdAt: '2026-04-10' },
+    { id: 't_education', companyName: '奥地利跨境网店直销部', industry: 'education', storeName: '382跨境3C出海站', status: 'active', aiBudget: 600, aiSpent: 210.0, createdAt: '2026-05-02' }
+  ]);
+  const [isCommandCenterOpen, setIsCommandCenterOpen] = useState(true);
   const [isOnlineStoreOpen, setIsOnlineStoreOpen] = useState(false);
+  const [discountDrafts, setDiscountDrafts] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [agentRuns, setAgentRuns] = useState<any[]>([]);
+  const [agentTasks, setAgentTasks] = useState<any[]>([]);
+  const [isDbLoaded, setIsDbLoaded] = useState(false);
+
+  // Helper method to write state to disk
+  const persistDatabaseState = async (
+    updatedTenants = tenants,
+    updatedTenantDB = tenantDB,
+    updatedMcpTools = mcpTools,
+    updatedMarketItems = marketItems,
+    updatedActiveAgents = activeAgents,
+    updatedDiscountDrafts = discountDrafts,
+    updatedAuditLogs = auditLogs,
+    updatedAgentRuns = agentRuns,
+    updatedAgentTasks = agentTasks
+  ) => {
+    try {
+      const payload = {
+        tenants: updatedTenants,
+        tenantDB: updatedTenantDB,
+        mcpTools: updatedMcpTools,
+        marketItems: updatedMarketItems,
+        activeAgents: updatedActiveAgents,
+        discountDrafts: updatedDiscountDrafts,
+        auditLogs: updatedAuditLogs,
+        agentRuns: updatedAgentRuns,
+        agentTasks: updatedAgentTasks
+      };
+      await fetch('/api/db/save-all', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+    } catch (err) {
+      console.error("Failed to persist SaaS database:", err);
+    }
+  };
   
   // Localized Tenant Database (to reflect live updates without losing edits when shifting contexts)
   const [tenantDB, setTenantDB] = useState<Record<IndustryType, {
@@ -126,6 +195,23 @@ export default function App() {
   const [customApiKey, setCustomApiKey] = useState('');
   const [showKeyModal, setShowKeyModal] = useState(false);
 
+  // SaaS Super Admin helper handlers
+  const handleToggleTenantStatus = (tenantId: string) => {
+    setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, status: t.status === 'active' ? 'suspended' : 'active' } : t));
+    const target = tenants.find(t => t.id === tenantId);
+    if (target) {
+      addLog('SaaS Platform Center', '租户状态变更', `租户「${target.companyName}」的状态已切换。`, 'warning');
+    }
+  };
+
+  const handleUpdateTenantValueLimit = (tenantId: string, limit: number) => {
+    setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, aiBudget: limit } : t));
+    const target = tenants.find(t => t.id === tenantId);
+    if (target) {
+      addLog('SaaS Platform Center', '租户自动化调度增配', `租户「${target.companyName}」的智能开店自动化运行预算调整为 ${limit} USD.`, 'success');
+    }
+  };
+
   // Forms / additions inputs
   const [newTitle, setNewTitle] = useState('');
   const [newSKU, setNewSKU] = useState('');
@@ -172,8 +258,61 @@ export default function App() {
         console.error("Express backend inactive in background", err);
       }
     };
+    
+    const loadDB = async () => {
+      try {
+        const res = await fetch('/api/db/get-all');
+        if (res.ok) {
+          const dbData = await res.json();
+          if (dbData && dbData.tenantDB) {
+            if (dbData.tenants) setTenants(dbData.tenants);
+            setTenantDB(dbData.tenantDB);
+            if (dbData.mcpTools) setMcpTools(dbData.mcpTools);
+            if (dbData.marketItems) setMarketItems(dbData.marketItems);
+            if (dbData.activeAgents) setActiveAgents(dbData.activeAgents);
+            if (dbData.discountDrafts) setDiscountDrafts(dbData.discountDrafts);
+            if (dbData.auditLogs) setAuditLogs(dbData.auditLogs);
+            if (dbData.agentRuns) setAgentRuns(dbData.agentRuns);
+            if (dbData.agentTasks) setAgentTasks(dbData.agentTasks);
+            console.log("SaaS Persistent DB successfully synchronized from server disk! Tenants count:", dbData.tenants?.length);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load SaaS state from DB on mount, falling back gracefully:", err);
+      } finally {
+        setIsDbLoaded(true);
+      }
+    };
+
     checkHealth();
+    loadDB();
   }, []);
+
+  // Save changes back to server-side persistent JSON DB automatically when states change (debounced)
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const saveDatabaseTimeout = setTimeout(() => {
+      persistDatabaseState(tenants, tenantDB, mcpTools, marketItems, activeAgents, discountDrafts, auditLogs, agentRuns, agentTasks);
+    }, 850);
+    return () => clearTimeout(saveDatabaseTimeout);
+  }, [tenants, tenantDB, mcpTools, marketItems, activeAgents, discountDrafts, auditLogs, agentRuns, agentTasks, isDbLoaded]);
+
+  // --- AI Runtime Context Engine Automatic Synchronization ---
+  useEffect(() => {
+    const currentIndustryData = tenantDB[selectedIndustry];
+    const currentStoreCtx = aiRuntimeStore.getContext();
+    
+    AIContextService.gatherContext({
+      industry: selectedIndustry,
+      activeTab: activeTab,
+      products: currentIndustryData.products,
+      orders: currentIndustryData.orders,
+      customers: currentIndustryData.customers,
+      selectedProductId: currentStoreCtx.ui?.productId,
+      selectedOrderId: currentStoreCtx.ui?.orderId,
+      selectedCustomerId: currentStoreCtx.ui?.customerId
+    });
+  }, [selectedIndustry, activeTab, tenantDB]);
 
   const addLog = (agent: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' | 'tool' = 'info') => {
     const time = new Date().toTimeString().split(' ')[0];
@@ -191,6 +330,159 @@ export default function App() {
       'Tenant Industry Shifted',
       `Auto-loaded enterprise DB blueprints, schemas, and AI roles for [${industry.toUpperCase()}] track.`,
       'info'
+    );
+  };
+
+  const renderWithAICenterLayout = (content: React.ReactNode) => {
+    return (
+      <div id="ai-center-grid-layout" className="grid grid-cols-1 lg:grid-cols-12 gap-8 text-left animate-fadeIn">
+        {/* Left side AI Center menu */}
+        <div className="lg:col-span-3 space-y-2 shrink-0">
+          <div className="bg-[#121314] text-white rounded-xl p-4 border border-[#2d2e30] mb-3 select-none shadow-md">
+            <h3 className="text-xs font-black uppercase tracking-wider text-indigo-400 font-display flex items-center gap-1.5">
+              <Bot className="w-4 h-4 text-slate-300 animate-pulse" /> AI 智能中枢
+            </h3>
+            <p className="text-[10px] text-slate-300 mt-1.5 leading-relaxed font-normal">
+              统一调度零售 SaaS 系统的 AI 员工，对齐向量 FAQ 地图知识库与条件执行触发链。
+            </p>
+          </div>
+          
+          {[
+            { id: 'agents', name: '🤖 AI 员工集群管理', desc: '设定 AI 员工基础 Prompt 与模型配置' },
+            { id: 'knowledge', name: '📁 Grounding 知识向量库', desc: '录入/校准向量化 FAQ 本地知识资产' },
+            { id: 'visual-workflow', name: '⚙️ 自动业务工作流', desc: '编排触发器、无代码流转以及状态判定' }
+          ].map(item => {
+            const isSubActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveTab(item.id as any);
+                  addLog('Navigation', 'AI中枢跳转', `视图切换到「${item.name}」`, 'info');
+                }}
+                className={`w-full text-left p-3 rounded-xl border transition-all flex flex-col space-y-1 select-none cursor-pointer group ${
+                  isSubActive 
+                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-md font-bold' 
+                    : 'bg-white border-slate-200/80 hover:border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span className={`text-xs font-bold leading-none ${isSubActive ? 'text-white' : 'text-slate-800 group-hover:text-black'}`}>{item.name}</span>
+                <span className={`text-[10px] leading-snug font-normal ${isSubActive ? 'text-indigo-100 font-medium' : 'text-slate-400'}`}>
+                  {item.desc}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        
+        {/* Right side contents rendering area */}
+        <div className="lg:col-span-9 space-y-6">
+          {content}
+        </div>
+      </div>
+    );
+  };
+
+  const renderWithDeveloperCenterLayout = (content: React.ReactNode) => {
+    return (
+      <div id="dev-center-grid-layout" className="grid grid-cols-1 lg:grid-cols-12 gap-8 text-left animate-fadeIn">
+        {/* Left side Developer Center menu */}
+        <div className="lg:col-span-3 space-y-2 shrink-0">
+          <div className="bg-[#121314] text-white rounded-xl p-4 border border-[#2d2e30] mb-3 select-none shadow-md">
+            <h3 className="text-xs font-black uppercase tracking-wider text-teal-400 font-display flex items-center gap-1.5">
+              <Terminal className="w-4 h-4 text-slate-300" /> 开发者生态接口
+            </h3>
+            <p className="text-[10px] text-slate-300 mt-1.5 leading-relaxed font-normal">
+              管理 API Webhook、连接外部工具代理（MCP）及检索 Shopify 开发指南。
+            </p>
+          </div>
+          
+          {[
+            { id: 'shopify-docs', name: '🔍 Shopify 开发指南', desc: '检索 Shopify 标准 REST/GraphQL 规格定义' },
+            { id: 'doctree', name: '📄 规格设计文档', desc: '追踪多租户零售 SaaS 系统核心设计规格树' },
+            { id: 'mcp', name: '🔌 MCP 外部代理数据', desc: '配置中继服务器模型及第三方外部协议网关' }
+          ].map(item => {
+            const isSubActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveTab(item.id as any);
+                  addLog('Navigation', '开发者中枢跳转', `视图切换到「${item.name}」`, 'info');
+                }}
+                className={`w-full text-left p-3 rounded-xl border transition-all flex flex-col space-y-1 select-none cursor-pointer group ${
+                  isSubActive 
+                    ? 'bg-[#0f766e] border-[#0f766e] text-white shadow-md font-bold' 
+                    : 'bg-white border-slate-200/80 hover:border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span className={`text-xs font-bold leading-none ${isSubActive ? 'text-white' : 'text-slate-800 group-hover:text-black'}`}>{item.name}</span>
+                <span className={`text-[10px] leading-snug font-normal ${isSubActive ? 'text-teal-100 font-medium' : 'text-slate-400'}`}>
+                  {item.desc}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        
+        {/* Right side contents rendering area */}
+        <div className="lg:col-span-9 space-y-6">
+          {content}
+        </div>
+      </div>
+    );
+  };
+
+  const renderWithSettingsCenterLayout = (content: React.ReactNode) => {
+    return (
+      <div id="settings-center-grid-layout" className="grid grid-cols-1 lg:grid-cols-12 gap-8 text-left animate-fadeIn">
+        {/* Left side Settings Center menu */}
+        <div className="lg:col-span-3 space-y-2 shrink-0">
+          <div className="bg-[#121314] text-white rounded-xl p-4 border border-[#2d2e30] mb-3 select-none shadow-md">
+            <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 font-display flex items-center gap-1.5">
+              <Settings className="w-4 h-4 text-slate-300 animate-spin" style={{ animationDuration: '6s' }} /> 系统参数设置
+            </h3>
+            <p className="text-[10px] text-slate-300 mt-1.5 leading-relaxed font-normal">
+              管理本位币汇率，设置全局主体属性、员工现场出勤考勤，并设定账户矩阵准入限制。
+            </p>
+          </div>
+          
+          {[
+            { id: 'settings', name: '🏢 常规与常规设置 (Generali & Piano)', desc: '店铺主体属性、欧元预设、当前订阅与账单划扣' },
+            { id: 'payments', name: '💳 统一支付与网关 (Pagamenti)', desc: '连接 Stripe, PayPal, Apple Pay, Base USDC 支付网关' },
+            { id: 'logistics', name: '🚚 配送与物流后勤 (Spedizione)', desc: '欧盟直发运费、配送区域划分与订单履约跟踪' },
+            { id: 'employees', name: '👥 执勤物理员工管理 (Utenti)', desc: '物理门店指纹/面部打卡考勤与实时出勤值班' },
+            { id: 'roles', name: '🔐 安全准入与权限 (Permessi)', desc: '各业务模块及多商家租户数据隔离安全配置' },
+            { id: 'policies', name: '🛡 欧盟政策与合规 (Informative)', desc: '多国语种选取、GDPR Cookie 拦截与退款服务条款预设' }
+          ].map(item => {
+            const isSubActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveTab(item.id as any);
+                  addLog('Navigation', '系统设置中枢跳转', `设置中枢视图切换至「${item.name}」`, 'info');
+                }}
+                className={`w-full text-left p-3 rounded-xl border transition-all flex flex-col space-y-1 select-none cursor-pointer group ${
+                  isSubActive 
+                    ? 'bg-slate-800 border-slate-800 text-white shadow-md font-bold' 
+                    : 'bg-white border-slate-200/80 hover:border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span className={`text-xs font-bold leading-none ${isSubActive ? 'text-white' : 'text-slate-800 group-hover:text-black'}`}>{item.name}</span>
+                <span className={`text-[10px] leading-snug font-normal ${isSubActive ? 'text-slate-200 font-medium' : 'text-slate-400'}`}>
+                  {item.desc}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        
+        {/* Right side contents rendering area */}
+        <div className="lg:col-span-9 space-y-6">
+          {content}
+        </div>
+      </div>
     );
   };
 
@@ -248,6 +540,18 @@ export default function App() {
     }, 80);
 
     try {
+      const currentStoreCtx = aiRuntimeStore.getContext();
+      const liveContext = AIContextService.gatherContext({
+        industry: selectedIndustry,
+        activeTab: activeTab,
+        products: currentIndustryData.products,
+        orders: currentIndustryData.orders,
+        customers: currentIndustryData.customers,
+        selectedProductId: currentStoreCtx.ui?.productId,
+        selectedOrderId: currentStoreCtx.ui?.orderId,
+        selectedCustomerId: currentStoreCtx.ui?.customerId
+      });
+
       const response = await fetch('/api/gemini/agent-chat', {
         method: 'POST',
         headers: {
@@ -259,6 +563,7 @@ export default function App() {
           products: currentIndustryData.products,
           orders: currentIndustryData.orders,
           metrics: currentIndustryData.metrics,
+          aiContext: liveContext,
           messages: thread
         })
       });
@@ -967,6 +1272,55 @@ export default function App() {
         onBack={() => setViewMode('industry')}
         onComplete={(data) => {
           setCompanyName(data.workspaceName);
+          if (data.customIndustry) {
+            setSelectedIndustry(data.customIndustry);
+            
+            // Merge negotiated parameters, products, and metrics directly into active tenantDB
+            setTenantDB(prev => {
+              const ind = data.customIndustry!;
+              return {
+                ...prev,
+                [ind]: {
+                  ...prev[ind],
+                  products: data.negotiatedProducts || prev[ind].products,
+                  metrics: data.customMetrics || prev[ind].metrics,
+                  knowledge: data.customKnowledge || prev[ind].knowledge
+                }
+              };
+            });
+
+            // Update associated active tenants layout config list
+            setTenants(prev => {
+              return prev.map(t => {
+                if (t.id === `t_${data.customIndustry}`) {
+                  return {
+                    ...t,
+                    companyName: data.workspaceName,
+                    storeName: `${data.workspaceName}总店`,
+                    aiBudget: data.customBudget || t.aiBudget
+                  };
+                }
+                return t;
+              });
+            });
+
+            // Seed corporate governance audit actions
+            setAuditLogs(prev => [
+              {
+                id: `AL_AUTO_${Date.now()}`,
+                tenantId: `t_${data.customIndustry}`,
+                userId: 'System Orchestrator',
+                action: 'ONE_SENTENCE_MAS_PROVISION',
+                resourceType: 'workspace',
+                resourceId: data.workspaceName,
+                beforeJson: '{"status": "none"}',
+                afterJson: JSON.stringify({ name: data.workspaceName, productsCount: data.negotiatedProducts?.length || 0 }),
+                createdAt: new Date().toISOString()
+              },
+              ...prev
+            ]);
+          }
+
           setViewMode('provisioning');
           addLog(
             'AI Command Center',
@@ -981,12 +1335,18 @@ export default function App() {
 
   if (viewMode === 'provisioning') {
     const industryLabels: Record<IndustryType, string> = {
-      retail: '服装设计批发系统',
-      food: '餐馆外卖系统',
-      manufacturing: '百货电器系统',
-      service: '美容预约系统',
-      education: '电商网店系统',
-      healthcare: 'POS门店系统'
+      retail: '新零售门店',
+      food: '餐饮服务',
+      manufacturing: '制造加工',
+      service: '生活服务',
+      education: '在线教育',
+      healthcare: '医疗健康',
+      fashion_wholesale: '服装设计批发系统',
+      restaurant_takeout: '餐馆外卖系统',
+      general_merch_electronics: '百货电器系统',
+      beauty_booking: '美容预约系统',
+      ecommerce_store: '电商网店系统',
+      pos_retail: 'POS门店系统'
     };
     return (
       <ProvisioningPage 
@@ -1000,41 +1360,69 @@ export default function App() {
   }
 
   return (
-    <div id="saas-platform-root" className="flex h-screen w-full bg-slate-50 font-sans text-slate-900 overflow-hidden">
+    <div id="saas-platform-root" className="flex h-screen w-full bg-[#F9FAFB] font-sans text-slate-900 overflow-hidden">
       
       {/* Sidebar Navigation */}
-      <aside id="saas-sidebar" className="w-64 bg-[#1a1b1d] text-[#e3e3e3] flex flex-col border-r border-[#2d2e30]">
+      <aside id="saas-sidebar" className="w-64 bg-[#09090b] text-[#f4f4f5] flex flex-col border-r border-[#1e1e22]/90">
         
         {/* Shopify-style Header */}
-        <div id="sidebar-header" className="p-4 flex items-center justify-between border-b border-[#2d2e30] bg-[#121314]">
+        <div id="sidebar-header" className="p-4 flex items-center justify-between border-b border-[#1c1c1f] bg-[#020202]/95">
           <div className="flex items-center gap-2 select-none">
             {/* Custom Green Shopify Representation Bag */}
-            <div className="w-7 h-7 bg-emerald-600 rounded-lg flex items-center justify-center shadow-lg font-bold text-white text-sm">s</div>
+            <div className="w-7 h-7 bg-[#9F7AEA] rounded-lg flex items-center justify-center shadow-lg font-bold text-white text-sm">S</div>
             <div className="flex flex-col text-left">
-              <span className="font-bold tracking-tight text-white text-sm leading-tight font-display">shopify</span>
-              <span className="text-[9px] text-[#969696] font-semibold uppercase tracking-wider">{companyName}</span>
+              <span className="font-bold tracking-tight text-white text-sm leading-tight font-display">Shopify SaaS</span>
+              <span className="text-[9px] text-[#a4a4ab] font-semibold uppercase tracking-wider">Multi-Industry Core</span>
             </div>
           </div>
-          <span className="text-[9px] bg-indigo-950 text-indigo-400 border border-indigo-900/60 font-mono font-bold px-1.5 py-0.5 rounded leading-none">VITESSE</span>
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded leading-none ${adminMode === 'merchant' ? 'bg-emerald-950/90 text-emerald-400 border border-emerald-900/60' : 'bg-[#07C2E3]/15 text-[#07C2E3] border border-[#07C2E3]/30'}`}>
+            {adminMode === 'merchant' ? '商家运维' : '平台总控'}
+          </span>
+        </div>
+
+        {/* Dynamic Dual Swapper Component */}
+        <div className="px-3.5 py-2.5 bg-[#020202]/70 border-b border-[#1c1c1f]">
+          <div className="flex bg-[#121214] border border-zinc-800/40 p-1 rounded-lg">
+            <button
+              onClick={() => {
+                setAdminMode('merchant');
+                setActiveTab('command');
+                addLog('Operator Control Panel', '视图切换', '进入 商家店铺后台运维环境', 'info');
+              }}
+              className={`flex-1 text-center py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${adminMode === 'merchant' ? 'bg-emerald-600/90 text-white shadow' : 'text-[#a1a1aa] hover:text-white'}`}
+            >
+              商家运维端
+            </button>
+            <button
+              onClick={() => {
+                setAdminMode('super_admin');
+                setActiveTab('admin_stats');
+                addLog('Operator Control Panel', '视图切换', '进入 核心SaaS平台总控制台', 'warning');
+              }}
+              className={`flex-1 text-center py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${adminMode === 'super_admin' ? 'bg-[#07C2E3] text-slate-950 shadow' : 'text-[#a1a1aa] hover:text-white'}`}
+            >
+              平台总后台
+            </button>
+          </div>
         </div>
 
         {/* Tenant Config Industry Switcher (Styled as Shopify Store Switcher) */}
-        <div className="px-3.5 py-2.5 bg-[#121314]/50 border-b border-[#2d2e30] flex items-center justify-between">
+        <div className="px-3.5 py-2.5 bg-[#020202]/30 border-b border-[#1c1c1f] flex items-center justify-between">
           <div className="flex flex-col text-left">
-            <span className="text-[8px] font-bold text-[#7a7b7c] tracking-widest uppercase">CURRENT ACTIVE STORE</span>
+            <span className="text-[8px] font-bold text-[#71717a] tracking-widest uppercase">当前店铺</span>
             <span className="text-xs font-bold text-slate-100 truncate max-w-[140px]">
-              {selectedIndustry === 'retail' && '👕 服装设计批发系统'}
-              {selectedIndustry === 'food' && '🍔 餐馆外卖系统'}
-              {selectedIndustry === 'education' && '🎓 电商网店系统'}
-              {selectedIndustry === 'healthcare' && '🏪 POS门店系统'}
-              {selectedIndustry === 'service' && '💅 美容预约系统'}
-              {selectedIndustry === 'manufacturing' && '🔋 百货电器系统'}
+              {selectedIndustry === 'retail' && '👕 服装设计批发 system'}
+              {selectedIndustry === 'food' && '🍔 餐馆外卖 system'}
+              {selectedIndustry === 'education' && '🎓 电商网店 system'}
+              {selectedIndustry === 'healthcare' && '🏪 POS门店 system'}
+              {selectedIndustry === 'service' && '💅 美容预约 system'}
+              {selectedIndustry === 'manufacturing' && '🔋 百货电器 system'}
             </span>
           </div>
           <select 
             value={selectedIndustry}
             onChange={(e) => handleIndustryChange(e.target.value as IndustryType)}
-            className="bg-[#242426] border border-[#2d2e30] rounded text-slate-200 text-[10px] p-1 focus:outline-none focus:ring-1 focus:ring-[#07C2E3]"
+            className="bg-[#121214] border border-[#27272a] rounded text-slate-200 text-[10px] p-1 focus:outline-none focus:ring-1 focus:ring-[#07C2E3] cursor-pointer"
           >
             <option value="retail">👕 服装</option>
             <option value="food">🍔 餐饮</option>
@@ -1048,97 +1436,118 @@ export default function App() {
         {/* Navigation List exactly representing user's screenshot */}
         <nav id="sidebar-nav" className="flex-1 p-2 space-y-1 overflow-y-auto font-sans">
           
-          {[
-            { id: 'command', name: '工作台', icon: Home },
-            { id: 'sales', name: '销售中心', icon: TrendingUp },
-            { id: 'products', name: '商品中心', icon: ShoppingBag },
-            { id: 'orders', name: '订单中心', icon: ShoppingCart },
-            { id: 'logistics', name: '物流中心', icon: Truck },
-            { id: 'payments', name: '支付中心', icon: CreditCard },
-            { id: 'online-store', name: '在线商店', icon: Globe },
-            { id: 'customers', name: '客户中心', icon: Users },
-            { id: 'marketing', name: '营销中心', icon: Megaphone },
-            { id: 'finance', name: '财务中心', icon: Coins },
-            { id: 'agents', name: 'AI员工中心', icon: Bot },
-            { id: 'knowledge', name: '知识库中心', icon: FileText },
-            { id: 'visual-workflow', name: '工作流中心', icon: Sliders },
-            { id: 'marketplace', name: '应用中心', icon: Store },
-            { id: 'employees', name: '员工中心', icon: User },
-            { id: 'roles', name: '角色权限', icon: Lock },
-            { id: 'settings', name: '企业设置', icon: Settings },
-            { id: 'doctree', name: '需求树文档', icon: FileText },
-          ].map((menu) => {
-            const IconComponent = menu.icon;
-            const isActive = activeTab === menu.id;
-            return (
-              <button
-                key={menu.id}
-                onClick={() => {
-                  setActiveTab(menu.id as any);
-                  addLog('Navigation', '切换视图', `切换至「${menu.name}」主控制面板`, 'info');
-                }}
-                className={`w-full text-left p-2 rounded-lg flex items-center justify-between text-xs font-semibold tracking-wide transition-all cursor-pointer ${
-                  isActive 
-                    ? 'bg-[#1b1c1e] text-[#07C2E3] border-l-2 border-[#07C2E3] font-bold' 
-                    : 'hover:bg-[#242426] hover:text-white text-[#b5b5b5]'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 text-left">
-                  <IconComponent className={`w-4 h-4 ${isActive ? 'text-[#07C2E3]' : 'text-[#6b7280]'}`} />
-                  <span>{menu.name}</span>
-                </div>
-                {menu.id === 'sales' && (
-                  <span className="text-[8px] bg-[#07C2E3]/15 text-[#07C2E3] font-bold px-1.5 py-0.2 rounded uppercase">Live</span>
-                )}
-                {menu.id === 'orders' && (
-                  <span className="text-[9px] text-[#6b7280] font-mono font-bold">
-                    {currentIndustryData.orders.length}
-                  </span>
-                )}
-                {menu.id === 'logistics' && (
-                  <span className="text-[9px] text-[#07C2E3] font-mono font-bold bg-[#07C2E3]/10 px-1.5 py-0.2 rounded">
-                    {currentIndustryData.orders.filter(o => o.status === 'Pending' || o.status === 'AI Confirmed').length}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {adminMode === 'super_admin' ? (
+            [
+              { id: 'admin_stats', name: '📊 平台控制中心', icon: BarChart3 },
+              { id: 'admin_tenants', name: '👥 租户中心', icon: Users },
+              { id: 'admin_query', name: '🔍 数据查询中心', icon: Search },
+              { id: 'admin_gateways', name: '💳 支付中心', icon: CreditCard },
+              { id: 'admin_ai_ops', name: '🧠 AI大脑中心', icon: Bot },
+              { id: 'admin_roles', name: '🔐 权限中心', icon: Scale },
+              { id: 'admin_system', name: '📜 审计中心', icon: FileText },
+              { id: 'admin_diagnostics', name: '🩺 系统诊断中心', icon: Activity },
+              { id: 'admin_settings', name: '⚙️ 平台设置中心', icon: Settings },
+            ].map((menu) => {
+              const IconComponent = menu.icon;
+              const isActive = activeTab === menu.id;
+
+              return (
+                <button
+                  key={menu.id}
+                  onClick={() => {
+                    setActiveTab(menu.id);
+                    addLog('Platform Admin Center', '切换视图', `切换至总后台「${menu.name}」控制面板`, 'info');
+                  }}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between text-xs font-medium tracking-tight h-9 transition-all cursor-pointer ${
+                    isActive 
+                      ? 'bg-[#1C1C1F] text-[#07C2E3] font-semibold border border-zinc-800/60 shadow-inner' 
+                      : 'hover:bg-[#141416] hover:text-slate-105 text-zinc-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 text-left">
+                    <IconComponent className={`w-3.5 h-3.5 ${isActive ? 'text-[#07C2E3]' : 'text-zinc-500'}`} />
+                    <span>{menu.name}</span>
+                  </div>
+                </button>
+              );
+            })
+          ) : (
+            [
+              { id: 'command', name: '📊 智能大盘', icon: BarChart3 },
+              { id: 'online-store', name: '🛍 主题中心', icon: Globe },
+              { id: 'products', name: '📦 商品中心', icon: ShoppingBag },
+              { id: 'orders', name: '🧾 订单中心', icon: ShoppingCart },
+              { id: 'customers', name: '👥 客户中心', icon: Users },
+              { id: 'marketing', name: '📣 营销中心', icon: Megaphone },
+              { id: 'agents', name: '🤖 AI中心', icon: Bot },
+              { id: 'marketplace', name: '🧩 应用市场', icon: Store },
+              { id: 'developer-center', name: '👨‍💻 开发者中心', icon: Terminal },
+              { id: 'settings', name: '⚙️ 设置中心', icon: Settings },
+            ].map((menu) => {
+              const IconComponent = menu.icon;
+              const isActive = 
+                menu.id === 'agents' ? ['agents', 'knowledge', 'visual-workflow'].includes(activeTab) :
+                menu.id === 'developer-center' ? ['doctree', 'shopify-docs', 'mcp'].includes(activeTab) :
+                menu.id === 'settings' ? ['settings', 'employees', 'roles', 'policies'].includes(activeTab) :
+                activeTab === menu.id;
+
+              return (
+                <button
+                  key={menu.id}
+                  onClick={() => {
+                    if (menu.id === 'agents') {
+                      if (!['agents', 'knowledge', 'visual-workflow'].includes(activeTab)) {
+                        setActiveTab('agents');
+                      }
+                    } else if (menu.id === 'developer-center') {
+                      if (!['shopify-docs', 'doctree', 'mcp'].includes(activeTab)) {
+                        setActiveTab('shopify-docs');
+                      }
+                    } else if (menu.id === 'settings') {
+                      if (!['settings', 'employees', 'roles', 'policies'].includes(activeTab)) {
+                        setActiveTab('settings');
+                      }
+                    } else {
+                      setActiveTab(menu.id as any);
+                    }
+                    addLog('Navigation', '切换视图', `切换至「${menu.name}」主控制面板`, 'info');
+                  }}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between text-xs font-medium tracking-tight h-9 transition-all cursor-pointer ${
+                    isActive 
+                      ? 'bg-[#1C1C1F] text-[#07C2E3] font-semibold border border-zinc-800/60 shadow-inner' 
+                      : 'hover:bg-[#141416] hover:text-slate-105 text-zinc-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 text-left">
+                    <IconComponent className={`w-3.5 h-3.5 ${isActive ? 'text-[#07C2E3]' : 'text-zinc-500'}`} />
+                    <span>{menu.name}</span>
+                  </div>
+                  {menu.id === 'orders' && (
+                    <span className="text-[10px] bg-zinc-800 border border-zinc-700/60 text-zinc-300 px-1.5 py-0.5 rounded-md font-mono font-bold leading-none">
+                      {currentIndustryData.orders.length}
+                    </span>
+                  )}
+                </button>
+              );
+            })
+          )}
 
         </nav>
 
         {/* Bottom Menu: Document Sync & Settings */}
         <div id="sidebar-bottom" className="p-2 border-t border-[#2d2e30] bg-[#121314]/90 space-y-1 font-sans">
           
-          <button 
-            onClick={() => setActiveTab('knowledge')}
-            className={`w-full text-left p-2 rounded-lg flex items-center gap-2.5 text-xs font-medium hover:bg-[#242426] text-[#b5b5b5] hover:text-white cursor-pointer`}
-          >
-            <BookOpen className="w-4 h-4 text-[#969696]" />
-            <span>Shopify 开发文档查找</span>
-          </button>
-
-          <button 
-            onClick={() => setShowKeyModal(true)}
-            className={`w-full text-left p-2 rounded-lg flex items-center justify-between text-xs font-medium hover:bg-[#242426] text-[#b5b5b5] hover:text-white cursor-pointer`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Settings className="w-4 h-4 text-[#969696]" />
-              <span>设置 (API 密钥)</span>
-            </div>
-            <span className={`w-2 h-2 rounded-full ${isApiKeyConnected ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-          </button>
-
           {/* Trial Ends box from standard Shopify layout */}
           <div className="mt-2 mx-1 p-2 bg-[#242426]/70 border border-[#2d2e30] rounded-lg">
-            <p className="text-[10px] text-slate-400 font-bold mb-1">试用剩余：3 天</p>
-            <p className="text-[9px] text-[#969696] leading-tight mb-1.5">仅需 1 欧元/月，即可激活首赛季全部高级 AI 工作流与总控看板。</p>
+            <p className="text-[10px] text-slate-400 font-bold mb-1">试用：3 天</p>
+            <p className="text-[9px] text-[#969696] leading-tight mb-1.5">激活高级版</p>
             <button 
               onClick={() => {
-                addLog('SaaS Platform', 'Package Activated', 'Successfully upgraded and paid €1 with secure Stripe module.', 'success');
+                addLog('SaaS Platform', 'Package Activated', 'Stripe checkout complete', 'success');
               }}
               className="w-full bg-[#303030] hover:bg-[#3d3d3d] text-white text-[9px] font-black py-1 px-2 rounded-md transition-all active:scale-95 cursor-pointer text-center block uppercase"
             >
-              选择定价方案
+              升级方案
             </button>
           </div>
 
@@ -1153,25 +1562,24 @@ export default function App() {
         <header id="saas-header" className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 relative z-10 shrink-0">
           <div className="flex items-center gap-3">
             <h1 className="text-sm md:text-base font-bold text-slate-800 font-display truncate max-w-[150px] md:max-w-none">
-              {activeTab === 'command' && '三端三入口 · 商家工作台'}
-              {activeTab === 'sales' && '销售中心 Unified Sales Engine'}
-              {activeTab === 'products' && '商品中心 Universal SKU Ledger'}
-              {activeTab === 'orders' && '订单中心 Order Fulfillment Engine'}
-              {activeTab === 'logistics' && '物流中心 Logistics Fulfillment Center'}
-              {activeTab === 'online-store' && '在线商店 Online Store'}
-              {activeTab === 'agents' && 'AI员工 Fleet Core'}
-              {activeTab === 'mcp' && 'MCP Execution Controls'}
-              {activeTab === 'knowledge' && 'RAG Knowledge Core'}
-              {activeTab === 'marketplace' && 'SaaS APP Marketplace'}
-              {activeTab === 'sourcing' && 'AI Sourcing Module'}
-              {activeTab === 'visual-workflow' && 'Workflow Engine'}
-              {activeTab === 'doctree' && '需求树文档跟踪'}
+              {activeTab === 'command' && '商家工作台'}
+              {activeTab === 'sales' && '销售中心'}
+              {activeTab === 'products' && '商品中心'}
+              {activeTab === 'orders' && '订单中心'}
+              {activeTab === 'logistics' && '物流中心'}
+              {activeTab === 'online-store' && '主题中心'}
+              {activeTab === 'agents' && 'AI 员工中心'}
+              {activeTab === 'employees' && '员工管理'}
+              {activeTab === 'roles' && '角色权限'}
+              {activeTab === 'settings' && '设置中心'}
+              {activeTab === 'shopify-docs' && '开发文档'}
+              {activeTab === 'mcp' && 'MCP 控制台'}
+              {activeTab === 'knowledge' && '知识库'}
+              {activeTab === 'marketplace' && '应用市场'}
+              {activeTab === 'sourcing' && '智能货源'}
+              {activeTab === 'visual-workflow' && '工作流引擎'}
+              {activeTab === 'doctree' && '需求树跟踪'}
             </h1>
-            
-            <div className="hidden sm:flex items-center gap-1 px-2.5 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded-full border border-indigo-100/60 leading-none">
-              <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-ping"></span>
-              98 MULTI-AGENTS ONLINE
-            </div>
           </div>
 
           {/* Unified layout: Search | AI命令中心 | 通知 | 账户 */}
@@ -1188,14 +1596,14 @@ export default function App() {
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
             </div>
 
-            {/* 2. AI命令中心 Button */}
+            {/* 2. AI助手 Button */}
             <button 
               id="header-ai-cmd-trigger"
               onClick={() => setIsCommandCenterOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-black text-xs flex items-center gap-1.5 shadow-md shadow-indigo-500/10 active:scale-95 transition-all cursor-pointer border border-indigo-500/20"
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#07C2E3] to-[#046B7D] hover:from-[#06B2D0] hover:to-[#035968] text-white font-black text-xs flex items-center gap-1.5 shadow-md shadow-[#07C2E3]/10 active:scale-95 transition-all cursor-pointer border border-[#07C2E3]/20"
             >
-              <Sparkles className="w-3.5 h-3.5 text-white animate-pulse" />
-              <span>AI命令中心</span>
+              <Bot className="w-3.5 h-3.5 text-white animate-pulse" />
+              <span>AI 助手</span>
             </button>
 
             {/* 3. 通知 (Notifications) */}
@@ -1229,28 +1637,96 @@ export default function App() {
           {/* Main workspace view matching is selected tab */}
           <div id="saas-workspace" className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-6">
             
-            {/* API Key instruction banner if missing */}
-            {!isApiKeyConnected && (
-              <div id="gemini-key-alert-banner" className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 transition-all">
-                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <div className="text-xs text-amber-800">
-                  <p className="font-bold">Workspace Alert: Connected to Local Simulation Fallback Engine</p>
-                  <p className="mt-0.5 opacity-90">
-                    To enable real-time generative intelligence from Gemini, set your <code className="font-mono bg-amber-100/60 px-1 py-0.5 rounded leading-none text-amber-900 border border-amber-200">GEMINI_API_KEY</code> globally, or submit it safely directly below.
+            {adminMode === 'super_admin' ? (
+              <SuperAdminCenter
+                tenantDB={tenantDB}
+                activeSubTab={(() => {
+                  switch (activeTab) {
+                    case 'admin_stats': return 'stats';
+                    case 'admin_tenants': return 'tenants';
+                    case 'admin_query': return 'query';
+                    case 'admin_gateways': return 'gateways';
+                    case 'admin_ai_ops': return 'ai-ops';
+                    case 'admin_roles': return 'roles';
+                    case 'admin_system': return 'logs';
+                    case 'admin_diagnostics': return 'diagnostics';
+                    case 'admin_settings': return 'settings';
+                    default: return 'stats';
+                  }
+                })()}
+                tenants={tenants}
+                onUpdateTenantStatus={(tenantId, status) => {
+                  setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, status } : t));
+                  addLog('Platform Admin Center', '租户状态更新', `更新租户ID: ${tenantId} 的状态为 ${status === 'active' ? '激活' : '冻结'}`, 'warning');
+                }}
+                onUpdateTenantAiBudget={(tenantId, budget) => {
+                  setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, aiBudget: budget } : t));
+                  addLog('Platform Admin Center', '租户自动化额度调配', `更新租户ID: ${tenantId} 的最大自动调度预算上限为 $${budget}`, 'success');
+                }}
+                marketItems={marketItems}
+                onAddMarketItem={(newItem) => {
+                  setMarketItems(prev => [newItem, ...prev]);
+                }}
+                globalDefaultModel={globalDefaultModel}
+                onChangeGlobalModel={(model) => {
+                  setGlobalDefaultModel(model);
+                }}
+                onChangeSubTab={(subTab) => {
+                  const tabMapping: Record<string, string> = {
+                    'stats': 'admin_stats',
+                    'tenants': 'admin_tenants',
+                    'query': 'admin_query',
+                    'gateways': 'admin_gateways',
+                    'ai-ops': 'admin_ai_ops',
+                    'roles': 'admin_roles',
+                    'logs': 'admin_system',
+                    'diagnostics': 'admin_diagnostics',
+                    'settings': 'admin_settings'
+                  };
+                  const targetTab = tabMapping[subTab];
+                  if (targetTab) {
+                    setActiveTab(targetTab);
+                  }
+                }}
+                onAddSystemLog={(module, action, details, type) => addLog(`[Admin] ${module}`, action, details, type)} 
+                activeAgents={activeAgents} 
+                onUpdateAgents={setActiveAgents}
+                auditLogs={auditLogs}
+                setAuditLogs={setAuditLogs}
+                agentRuns={agentRuns}
+                setAgentRuns={setAgentRuns}
+                agentTasks={agentTasks}
+                setAgentTasks={setAgentTasks}
+              />
+            ) : tenants.find(t => t.industry === selectedIndustry)?.status === 'suspended' ? (
+              <div id="tenant-suspended-view" className="bg-slate-950 border border-slate-800 rounded-2xl p-8 max-w-2xl mx-auto text-center space-y-6 my-12 animate-fadeIn">
+                <div className="w-16 h-16 bg-red-950/30 text-red-500 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                  <AlertTriangle className="w-8 h-8" />
+                </div>
+                <div className="space-y-2 text-slate-100">
+                  <h2 className="text-xl font-black text-red-400">🚨 HTTP 503 SERVICE TEMPORARILY SUSPENDED</h2>
+                  <p className="text-xs text-slate-400 leading-relaxed font-semibold">
+                    由于当前商户所属租户账户违反平台自动化配额准则、欠缴订阅费用或已被超级管理员强制实行服务阻断，本系统前后台已被依法冻结并关断。
                   </p>
-                  <div className="mt-2.5 flex items-center gap-3">
-                    <button 
-                      onClick={() => setShowKeyModal(true)} 
-                      className="bg-amber-800 hover:bg-amber-900 text-white font-bold py-1 px-2.5 rounded text-[11px] transition-colors"
-                    >
-                      Authenticate Now
-                    </button>
-                    <span className="text-[10px] text-amber-600 font-medium">Or let AI evaluate using native simulated heuristics.</span>
-                  </div>
+                </div>
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-1 text-xs text-left font-mono text-slate-350">
+                  <p><span className="text-slate-500">TENANT ID:</span> {tenants.find(t => t.industry === selectedIndustry)?.id}</p>
+                  <p><span className="text-slate-500">STORE INSTANCE:</span> {tenants.find(t => t.industry === selectedIndustry)?.storeName}</p>
+                  <p><span className="text-slate-500">PUNISHMENT SCALE:</span> 503 OVERALL ACCESS BARRED</p>
+                </div>
+                <div className="flex justify-center gap-3">
+                  <button 
+                    onClick={() => {
+                      setAdminMode('super_admin');
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-lg cursor-pointer transition-colors"
+                  >
+                    以平台操盘手身份进入总后台解冻
+                  </button>
                 </div>
               </div>
-            )}
-
+            ) : (
+              <>
             {/* TAB 1: COMMERCIAL COMMAND OVERVIEW */}
             {activeTab === 'command' && (
               <SaaSMerchantWorkbench
@@ -1344,15 +1820,14 @@ export default function App() {
                 }}
                 onOpenOnlineStorefront={() => setIsOnlineStoreOpen(true)}
                 addLog={addLog}
-                isCommandCenterOpen={isCommandCenterOpen}
-                onToggleCommandCenter={() => setIsCommandCenterOpen(!isCommandCenterOpen)}
+                onSwitchTab={(tab) => setActiveTab(tab)}
               />
             )}
 
             {/* TAB 2: AI EMPLOYEE FLEET DIRECT CONVERSATION IS REMOVED */}
 
             {/* TAB 3: MCP TOOLS & WORKFLOW NODE AUTOMATIONS */}
-            {activeTab === 'mcp' && (
+            {activeTab === 'mcp' && renderWithDeveloperCenterLayout(
               <div id="tab-mcp-flows" className="grid grid-cols-1 xl:grid-cols-12 gap-8 animate-fadeIn">
                 
                 {/* Left side: Flow triggers and Visual Workflow execution nodes */}
@@ -1497,7 +1972,7 @@ export default function App() {
             )}
 
             {/* TAB 4: RAG KNOWLEDGE CORE */}
-            {activeTab === 'knowledge' && (
+            {activeTab === 'knowledge' && renderWithAICenterLayout(
               <div id="tab-rag-knowledge" className="grid grid-cols-1 xl:grid-cols-12 gap-8 animate-fadeIn">
                 
                 {/* Visual RAG diagram and instruction info */}
@@ -1748,8 +2223,9 @@ export default function App() {
                 {!sourcingLoading && sourcingRecommendations.length > 0 && (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {sourcingRecommendations.map((reco, idx) => {
-                      const demandColors = reco.demandTier === 'Extreme' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-200';
-                      const profitMargin = reco.markupPercentage;
+                      const demandColors = reco.targetDemand === 'Extreme' || reco.targetDemand === 'Critical' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-200';
+                      const profitMargin = reco.marginPct;
+                      const competitorAvg = reco.price * 1.15;
                       return (
                         <div key={idx} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between space-y-5">
                           <div className="space-y-4">
@@ -1757,7 +2233,7 @@ export default function App() {
                             <div className="flex items-center justify-between">
                               <span className="font-mono text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded border border-slate-200 uppercase tracking-widest">{reco.sku}</span>
                               <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${demandColors}`}>
-                                Demand: {reco.demandTier}
+                                Demand: {reco.targetDemand}
                               </span>
                             </div>
 
@@ -1765,7 +2241,7 @@ export default function App() {
                             <div>
                               <h4 className="font-bold text-slate-800 text-sm font-display leading-tight">{reco.name}</h4>
                               <p className="text-xs text-slate-500 leading-relaxed font-normal mt-2">
-                                {reco.reasoning}
+                                {reco.trendReason}
                               </p>
                             </div>
 
@@ -1773,15 +2249,15 @@ export default function App() {
                             <div className="grid grid-cols-3 gap-2 bg-slate-55 border border-slate-100/80 p-3 rounded-lg text-center">
                               <div>
                                 <span className="block text-[8px] uppercase font-bold text-slate-400">Wholesale</span>
-                                <span className="text-xs font-mono font-bold text-slate-800">${reco.estimatedWholesale.toFixed(2)}</span>
+                                <span className="text-xs font-mono font-bold text-slate-800">${reco.wholesaleCost.toFixed(2)}</span>
                               </div>
                               <div>
                                 <span className="block text-[8px] uppercase font-bold text-slate-400">Target MSRP</span>
-                                <span className="text-xs font-mono font-bold text-indigo-700">${reco.recommendedMSRP.toFixed(2)}</span>
+                                <span className="text-xs font-mono font-bold text-indigo-700">${reco.price.toFixed(2)}</span>
                               </div>
                               <div>
                                 <span className="block text-[8px] uppercase font-bold text-slate-400">Margin</span>
-                                <span className="text-xs font-mono font-bold text-emerald-600">+{profitMargin}%</span>
+                                <span className="text-xs font-mono font-bold text-emerald-600">+{profitMargin.toFixed(1)}%</span>
                               </div>
                             </div>
 
@@ -1789,15 +2265,15 @@ export default function App() {
                             <div className="space-y-2 pt-1 font-sans">
                               <div className="flex justify-between items-center text-[10px] text-slate-500">
                                 <span>Target Audience:</span>
-                                <span className="text-slate-800 font-medium">{reco.targetAudience}</span>
+                                <span className="text-slate-800 font-medium">{reco.audience}</span>
                               </div>
                               <div className="flex justify-between items-center text-[10px] text-slate-500">
                                 <span>Est. Monthly Sales:</span>
-                                <span className="text-slate-800 font-bold font-mono">{reco.estimatedMonthlyVolume} units</span>
+                                <span className="text-slate-800 font-bold font-mono">{reco.estMonthlySales} units</span>
                               </div>
                               <div className="flex justify-between items-center text-[10px] text-slate-500 border-t border-slate-100 pt-2">
                                 <span>Competitor Average:</span>
-                                <span className="text-indigo-600 font-semibold font-mono">${reco.competitorAveragePrice.toFixed(2)}</span>
+                                <span className="text-indigo-600 font-semibold font-mono">${competitorAvg.toFixed(2)}</span>
                               </div>
                             </div>
                           </div>
@@ -1807,7 +2283,7 @@ export default function App() {
                             {reco.synced ? (
                               <button
                                 disabled
-                                className="w-full bg-slate-100 text-slate-505 border border-slate-200 font-bold py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-not-allowed"
+                                className="w-full bg-slate-100 text-slate-500 border border-slate-200 font-bold py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-not-allowed"
                               >
                                 <CheckCircle className="w-4 h-4 text-emerald-500" />
                                 <span>SKU Added To Active Storefront ✓</span>
@@ -1842,8 +2318,8 @@ export default function App() {
             )}
 
             {/* TAB 7: VISUAL WORKFLOW PIPELINE BUILDER */}
-            {activeTab === 'visual-workflow' && (
-              <div id="tab-visual-workflows-panel" className="space-y-6 animate-fadeIn text-left">
+            {activeTab === 'visual-workflow' && renderWithAICenterLayout(
+              <div id="tab-visual-workflows-panel" className="space-y-6 animate-fadeIn text-left font-sans">
                 {/* Header overview banner */}
                 <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-md border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-6">
                   <div className="space-y-1">
@@ -2157,34 +2633,7 @@ export default function App() {
               </div>
             )}
 
-            {activeTab === 'logistics' && (
-              <div id="tab-logistics-panel" className="animate-fadeIn">
-                <LogisticsCenter 
-                  orders={currentIndustryData.orders}
-                  products={currentIndustryData.products}
-                  selectedIndustry={selectedIndustry}
-                  addLog={addLog}
-                  onUpdateOrders={(updatedOrders) => {
-                    setTenantDB(prev => ({
-                      ...prev,
-                      [selectedIndustry]: {
-                        ...prev[selectedIndustry],
-                        orders: updatedOrders
-                      }
-                    }));
-                  }}
-                  onUpdateProducts={(updatedProducts) => {
-                    setTenantDB(prev => ({
-                      ...prev,
-                      [selectedIndustry]: {
-                        ...prev[selectedIndustry],
-                        products: updatedProducts
-                      }
-                    }));
-                  }}
-                />
-              </div>
-            )}
+
 
             {activeTab === 'customers' && (
               <div id="tab-customers-panel" className="animate-fadeIn">
@@ -2234,24 +2683,7 @@ export default function App() {
               </div>
             )}
 
-            {activeTab === 'payments' && (
-              <div id="tab-payments-panel" className="animate-fadeIn">
-                <PaymentCenter
-                  orders={currentIndustryData.orders}
-                  selectedIndustry={selectedIndustry}
-                  addLog={addLog}
-                  onUpdateOrders={(updatedOrders) => {
-                    setTenantDB(prev => ({
-                      ...prev,
-                      [selectedIndustry]: {
-                        ...prev[selectedIndustry],
-                        orders: updatedOrders
-                      }
-                    }));
-                  }}
-                />
-              </div>
-            )}
+
 
             {activeTab === 'online-store' && (
               <div id="tab-online-store-panel" className="animate-fadeIn">
@@ -2262,10 +2694,64 @@ export default function App() {
               </div>
             )}
 
-            {activeTab === 'doctree' && (
+            {activeTab === 'doctree' && renderWithDeveloperCenterLayout(
               <div id="tab-doctree-panel" className="animate-fadeIn">
                 <DocTreeViewer />
               </div>
+            )}
+
+            {activeTab === 'agents' && renderWithAICenterLayout(
+              <div id="tab-agents-panel" className="animate-fadeIn">
+                <AIEmployeeCenter 
+                  activeAgents={activeAgents}
+                  onUpdateAgents={(updated) => setActiveAgents(updated)}
+                  selectedIndustry={selectedIndustry}
+                  addLog={addLog}
+                />
+              </div>
+            )}
+
+            {['settings', 'payments', 'logistics', 'employees', 'roles', 'policies'].includes(activeTab) && (
+              <div id="tab-settings-panel" className="animate-fadeIn">
+                <EnterpriseSettings 
+                  companyName={companyName}
+                  onUpdateCompanyName={(name) => setCompanyName(name)}
+                  selectedIndustry={selectedIndustry}
+                  addLog={addLog}
+                  orders={currentIndustryData.orders}
+                  products={currentIndustryData.products}
+                  onUpdateOrders={(updatedOrders) => {
+                    setTenantDB(prev => ({
+                      ...prev,
+                      [selectedIndustry]: {
+                        ...prev[selectedIndustry],
+                        orders: updatedOrders
+                      }
+                    }));
+                  }}
+                  onUpdateProducts={(updatedProducts) => {
+                    setTenantDB(prev => ({
+                      ...prev,
+                      [selectedIndustry]: {
+                        ...prev[selectedIndustry],
+                        products: updatedProducts
+                      }
+                    }));
+                  }}
+                  parentActiveTab={activeTab}
+                />
+              </div>
+            )}
+
+            {activeTab === 'shopify-docs' && renderWithDeveloperCenterLayout(
+              <div id="tab-shopify-docs-panel" className="animate-fadeIn">
+                <ShopifyDocsFinder 
+                  addLog={addLog}
+                />
+              </div>
+            )}
+
+              </>
             )}
 
           </div>
@@ -2278,6 +2764,7 @@ export default function App() {
             products={currentIndustryData.products}
             orders={currentIndustryData.orders}
             customers={currentIndustryData.customers || []}
+            currentAppTab={activeTab}
             onUpdateCustomers={(updatedCustomers) => {
               setTenantDB(prev => ({
                 ...prev,
@@ -2287,12 +2774,31 @@ export default function App() {
                 }
               }));
             }}
+            onUpdateProducts={(updatedProducts) => {
+              setTenantDB(prev => ({
+                ...prev,
+                [selectedIndustry]: {
+                  ...prev[selectedIndustry],
+                  products: updatedProducts
+                }
+              }));
+            }}
             addLog={addLog}
             onSwitchTab={(tab) => setActiveTab(tab)}
             onTriggerAddProductOpen={() => setShowAddProduct(true)}
             onBulkRestock={handleBulkRestockComp}
             onUpdateOrderStatus={handleUpdateOrderStatus}
             onAddNewProduct={handleAddNewProductComp}
+            onPrefillProductForm={(name, sku, price, stock) => {
+              setNewTitle(name);
+              setNewSKU(sku);
+              setNewPrice(price);
+              setNewStock(stock);
+              setNewThreshold(10);
+              setActiveTab('products');
+              setShowAddProduct(true);
+              addLog('AI Commander', 'Deep Redirection & Prefill', `已自动将智体提案货品「${name}」填充到商品创建表单并为您跳转，完成闭环！`, 'success');
+            }}
           />
 
         </div>

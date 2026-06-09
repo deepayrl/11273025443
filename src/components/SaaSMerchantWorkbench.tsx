@@ -10,7 +10,11 @@ import {
   Package, 
   Megaphone, 
   Plus, 
-  Coins 
+  Coins,
+  Bot,
+  Cpu,
+  Zap,
+  CheckCircle
 } from 'lucide-react';
 import { IndustryType, ProductItem, OrderItem } from '../types';
 
@@ -26,8 +30,7 @@ interface SaaSMerchantWorkbenchProps {
   onAuditOrder: (orderId: string) => void;
   onOpenOnlineStorefront: () => void;
   addLog: (agent: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' | 'tool') => void;
-  isCommandCenterOpen: boolean;
-  onToggleCommandCenter: () => void;
+  onSwitchTab: (tab: string) => void;
 }
 
 interface RecentTask {
@@ -50,8 +53,7 @@ export default function SaaSMerchantWorkbench({
   onAuditOrder,
   onOpenOnlineStorefront,
   addLog,
-  isCommandCenterOpen,
-  onToggleCommandCenter
+  onSwitchTab
 }: SaaSMerchantWorkbenchProps) {
   
   // Real-time calculation helper
@@ -63,11 +65,11 @@ export default function SaaSMerchantWorkbench({
 
   // Simplified business task list
   const [tasks, setTasks] = useState<RecentTask[]>([
-    { id: '101', taskType: '商品库存安全水平诊断', targetModule: '库存管理', status: '已完成', time: '00:18:22' },
-    { id: '102', taskType: '跨境物流清关报关单校验', targetModule: '订单管理', status: '执行中', time: '00:19:40' },
-    { id: '103', taskType: '商品多语种描述自动转化', targetModule: '商品管理', status: '已完成', time: '00:15:10' },
-    { id: '104', taskType: '退款单高危欺诈核查拦截', targetModule: '订单管理', status: '待执行', time: '00:19:55' },
-    { id: '105', taskType: '首季大促优惠折扣下发', targetModule: '营销中心', status: '已完成', time: '00:10:05' }
+    { id: '101', taskType: '库存诊断', targetModule: '库存管理', status: '已完成', time: '00:18:22' },
+    { id: '102', taskType: '报关校验', targetModule: '订单管理', status: '执行中', time: '00:19:40' },
+    { id: '103', taskType: '多语转化', targetModule: '商品管理', status: '已完成', time: '00:15:10' },
+    { id: '104', taskType: '退款拦截', targetModule: '订单管理', status: '待执行', time: '00:19:55' },
+    { id: '105', taskType: '折扣下发', targetModule: '营销中心', status: '已完成', time: '00:10:05' }
   ]);
 
   // Operational states 
@@ -121,14 +123,6 @@ export default function SaaSMerchantWorkbench({
       
       {/* 顶部店铺配置栏 */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-5 text-left">
-        <div className="space-y-1">
-          <h2 className="text-xl font-bold tracking-tight text-slate-900">
-            {companyName} · 商家控制中心首页
-          </h2>
-          <p className="text-xs text-slate-500">
-            多租户企业级主控制台已激活。在这里管理您旗下所有AI决策流程、多渠道销售单据、进出货库存和结算财务流。
-          </p>
-        </div>
         <div className="flex items-center gap-2">
           <button 
             onClick={onOpenOnlineStorefront}
@@ -146,59 +140,55 @@ export default function SaaSMerchantWorkbench({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         
         {/* Card 1: 今日销售额 */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-colors text-left relative overflow-hidden">
+        <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-xs flex flex-col justify-between hover:border-[#07C2E3]/55 transition-all text-left relative overflow-hidden group">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500 font-bold">今日销售额</span>
-            <div className="w-7 h-7 rounded-lg bg-[#e6fafc] flex items-center justify-center">
-              <DollarSign className="w-4 h-4 text-[#07C2E3]" />
+            <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">今日销售额</span>
+            <div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center group-hover:bg-[#e6fafc] transition-colors">
+              <DollarSign className="w-4 h-4 text-slate-600 group-hover:text-[#07C2E3] transition-colors" />
             </div>
           </div>
-          <div className="mt-2.5 flex items-baseline gap-1.5">
-            <span className="text-2xl font-black font-mono text-slate-900">${totalSalesVal.toFixed(2)}</span>
+          <div className="mt-4 flex items-baseline gap-1.5">
+            <span className="text-2xl font-bold font-mono text-slate-900 tracking-tight">${totalSalesVal.toFixed(2)}</span>
           </div>
-          <div className="mt-1.5 text-[10px] text-slate-400 font-medium">包含试用下单和自动铺货成交</div>
         </div>
 
         {/* Card 2: 今日订单 */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-colors text-left relative overflow-hidden">
+        <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-xs flex flex-col justify-between hover:border-[#07C2E3]/55 transition-all text-left relative overflow-hidden group">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500 font-bold">今日订单</span>
-            <div className="w-7 h-7 rounded-lg bg-[#e6fafc] flex items-center justify-center">
-              <ShoppingCart className="w-4 h-4 text-[#07C2E3]" />
+            <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">今日订单</span>
+            <div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center group-hover:bg-[#e6fafc] transition-colors">
+              <ShoppingCart className="w-4 h-4 text-slate-600 group-hover:text-[#07C2E3] transition-colors" />
             </div>
           </div>
-          <div className="mt-2.5 flex items-baseline gap-1.5">
-            <span className="text-xl font-black font-mono text-slate-900">{orderCount} 笔</span>
+          <div className="mt-4 flex items-baseline gap-1.5">
+            <span className="text-2xl font-bold font-mono text-slate-900 tracking-tight">{orderCount} <span className="text-xs text-slate-400 font-sans font-normal">笔</span></span>
           </div>
-          <div className="mt-1.5 text-[10px] text-slate-400 font-medium">其中 {products.filter(p => p.stock <= p.minStockThreshold).length} 笔订单触发了补库预警</div>
         </div>
 
         {/* Card 3: 今日客户 */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-colors text-left relative overflow-hidden">
+        <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-xs flex flex-col justify-between hover:border-[#07C2E3]/55 transition-all text-left relative overflow-hidden group">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500 font-bold">今日客户</span>
-            <div className="w-7 h-7 rounded-lg bg-[#e6fafc] flex items-center justify-center">
-              <Users className="w-4 h-4 text-[#07C2E3]" />
+            <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">今日客户</span>
+            <div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center group-hover:bg-[#e6fafc] transition-colors">
+              <Users className="w-4 h-4 text-slate-600 group-hover:text-[#07C2E3] transition-colors" />
             </div>
           </div>
-          <div className="mt-2.5 flex items-baseline gap-1.5">
-            <span className="text-xl font-black font-mono text-slate-900">{customerCount} 人</span>
+          <div className="mt-4 flex items-baseline gap-1.5">
+            <span className="text-2xl font-bold font-mono text-slate-900 tracking-tight">{customerCount} <span className="text-xs text-slate-400 font-sans font-normal">人</span></span>
           </div>
-          <div className="mt-1.5 text-[10px] text-slate-400 font-medium">新增注册买家复购率为 38.4%</div>
         </div>
 
         {/* Card 4: 今日利润 */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-colors text-left relative overflow-hidden">
+        <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-xs flex flex-col justify-between hover:border-[#07C2E3]/55 transition-all text-left relative overflow-hidden group">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500 font-bold">今日利润</span>
-            <div className="w-7 h-7 rounded-lg bg-[#e6fafc] flex items-center justify-center">
-              <Activity className="w-4 h-4 text-[#07C2E3]" />
+            <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">今日利润</span>
+            <div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center group-hover:bg-[#e6fafc] transition-colors">
+              <Activity className="w-4 h-4 text-slate-600 group-hover:text-[#07C2E3] transition-colors" />
             </div>
           </div>
-          <div className="mt-2.5 flex items-baseline gap-1.5">
-            <span className="text-2xl font-black font-mono text-slate-900">${totalProfitVal.toFixed(2)}</span>
+          <div className="mt-4 flex items-baseline gap-1.5">
+            <span className="text-2xl font-bold font-mono text-slate-900 tracking-tight">${totalProfitVal.toFixed(2)}</span>
           </div>
-          <div className="mt-1.5 text-[10px] text-slate-400 font-medium">平均毛利率比例为 {profitMargin * 100}%</div>
         </div>
 
       </div>
@@ -208,48 +198,52 @@ export default function SaaSMerchantWorkbench({
       {/* ========================================== */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         
-        <div className="bg-white hover:bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between transition-colors text-left">
-          <div className="space-y-0.5">
-            <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">待发货</span>
-            <span className="text-base font-black text-slate-900 font-mono">
-              {orders.filter(o => o.status === 'Pending' || o.status === 'AI Confirmed').length || 5} 件
+        <div className="bg-white hover:bg-slate-50/50 border border-slate-200/70 rounded-xl p-4 flex items-center justify-between transition-all text-left shadow-xs">
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-450 font-bold block uppercase tracking-wider">待发货</span>
+            <span className="text-lg font-bold text-slate-950 font-mono">
+              {orders.filter(o => o.status === 'Pending' || o.status === 'AI Confirmed').length || 5} <span className="text-xs font-sans text-slate-450 font-normal">件</span>
             </span>
           </div>
-          <span className="text-[10px] bg-amber-50 text-amber-700 font-bold px-2 py-0.5 rounded-full border border-amber-100">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 border border-amber-200/60 text-amber-700">
+            <span className="w-1 h-1 rounded-full bg-amber-500"></span>
             等待打单
           </span>
         </div>
 
-        <div className="bg-white hover:bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between transition-colors text-left">
-          <div className="space-y-0.5">
-            <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">待退款</span>
-            <span className="text-base font-black text-slate-900 font-mono">
-              {orders.filter(o => o.status === 'Refund Requested').length || 2} 单
+        <div className="bg-white hover:bg-slate-50/50 border border-slate-200/70 rounded-xl p-4 flex items-center justify-between transition-all text-left shadow-xs">
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-450 font-bold block uppercase tracking-wider">待退款</span>
+            <span className="text-lg font-bold text-slate-950 font-mono">
+              {orders.filter(o => o.status === 'Refund Requested').length || 2} <span className="text-xs font-sans text-slate-450 font-normal">单</span>
             </span>
           </div>
-          <span className="text-[10px] bg-rose-50 text-rose-700 font-bold px-2 py-0.5 rounded-full border border-rose-100">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 border border-rose-200/60 text-rose-700">
+            <span className="w-1 h-1 rounded-full bg-rose-500"></span>
             高危拦截
           </span>
         </div>
 
-        <div className="bg-white hover:bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between transition-colors text-left">
-          <div className="space-y-0.5">
-            <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">待审批</span>
-            <span className="text-base font-black text-slate-900 font-mono">3 个</span>
+        <div className="bg-white hover:bg-slate-50/50 border border-slate-200/70 rounded-xl p-4 flex items-center justify-between transition-all text-left shadow-xs">
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-450 font-bold block uppercase tracking-wider">待审批</span>
+            <span className="text-lg font-bold text-slate-950 font-mono">3 <span className="text-xs font-sans text-slate-450 font-normal">个</span></span>
           </div>
-          <span className="text-[10px] bg-[#e6fafc] text-[#07C2E3] font-bold px-2 py-0.5 rounded-full border border-[#bef1fa]">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#e6fafc] border border-cyan-200/60 text-[#07C2E3]">
+            <span className="w-1 h-1 rounded-full bg-[#07C2E3]"></span>
             资金拨付
           </span>
         </div>
 
-        <div className="bg-white hover:bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between transition-colors text-left">
-          <div className="space-y-0.5">
-            <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">待处理</span>
-            <span className="text-base font-black text-slate-900 font-mono">
-              {products.filter(p => p.stock <= p.minStockThreshold).length || 1} 预警
+        <div className="bg-white hover:bg-slate-50/50 border border-slate-200/70 rounded-xl p-4 flex items-center justify-between transition-all text-left shadow-xs">
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-450 font-bold block uppercase tracking-wider">待处理</span>
+            <span className="text-lg font-bold text-slate-950 font-mono">
+              {products.filter(p => p.stock <= p.minStockThreshold).length || 1} <span className="text-xs font-sans text-slate-450 font-normal">预警</span>
             </span>
           </div>
-          <span className="text-[10px] bg-amber-50 text-amber-700 font-bold px-2 py-0.5 rounded-full border border-[#bef1fa]">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 border border-amber-200/60 text-amber-700">
+            <span className="w-1 h-1 rounded-full bg-amber-500"></span>
             补足安全
           </span>
         </div>
@@ -257,50 +251,69 @@ export default function SaaSMerchantWorkbench({
       </div>
 
       {/* ========================================== */}
-      {/* 第三排：AI岗位运行数据统计 */}
+      {/* 第三排：AI智能体系状态看板 */}
       {/* ========================================== */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-slate-900 text-white p-5 rounded-2xl border border-slate-800">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         
-        <div className="text-left space-y-1">
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">AI员工在线</p>
-          <div className="flex items-center gap-2">
-            <span className="text-base font-black text-white">6 名智能助理</span>
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        {/* Card 1: AI员工在线 */}
+        <div className="bg-[#121314] text-white border border-[#2d2e30] rounded-xl p-4 shadow-sm flex flex-col justify-between hover:border-[#07C2E3]/50 transition-colors text-left relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-450 font-bold">AI员工在线</span>
+            <div className="w-7 h-7 rounded-lg bg-[#e6fafc]/10 flex items-center justify-center">
+              <Bot className="w-4 h-4 text-[#07C2E3]" />
+            </div>
           </div>
-          <p className="text-[10px] text-slate-500">已部署：采买、风控、分配、客服岗</p>
+          <div className="mt-2.5 flex items-baseline gap-1.5">
+            <span className="text-xl font-black font-mono text-white">8 位 Agent</span>
+          </div>
         </div>
 
-        <div className="text-left space-y-1">
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">今日执行背景任务</p>
-          <div className="flex items-center gap-2">
-            <span className="text-base font-black text-white font-mono">1,420 次交互</span>
+        {/* Card 2: 已执行任务 */}
+        <div className="bg-[#121314] text-white border border-[#2d2e30] rounded-xl p-4 shadow-sm flex flex-col justify-between hover:border-[#07C2E3]/50 transition-colors text-left relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-450 font-bold">执行任务</span>
+            <div className="w-7 h-7 rounded-lg bg-[#e6fafc]/10 flex items-center justify-center">
+              <Cpu className="w-4 h-4 text-[#07C2E3]" />
+            </div>
           </div>
-          <p className="text-[10px] text-slate-500">执行流程覆盖率达 94.6% 以上</p>
+          <div className="mt-2.5 flex items-baseline gap-1.5">
+            <span className="text-xl font-black font-mono text-[#07C2E3]">1,245 次</span>
+          </div>
         </div>
 
-        <div className="text-left space-y-1">
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">决策执行成功率</p>
-          <div className="flex items-center gap-2">
-            <span className="text-base font-black text-white font-mono">99.2%</span>
+        {/* Card 3: 任务成功率 */}
+        <div className="bg-[#121314] text-white border border-[#2d2e30] rounded-xl p-4 shadow-sm flex flex-col justify-between hover:border-[#07C2E3]/50 transition-colors text-left relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-450 font-bold">成功率</span>
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+              <CheckCircle className="w-4 h-4 text-emerald-400" />
+            </div>
           </div>
-          <p className="text-[10px] text-slate-500">极速审核，0 件由于技术中断导致延误</p>
+          <div className="mt-2.5 flex items-baseline gap-1.5">
+            <span className="text-xl font-black font-mono text-emerald-400">99.4%</span>
+          </div>
         </div>
 
-        <div className="text-left space-y-1">
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">今日节省人工成本</p>
-          <div className="flex items-center gap-2">
-            <span className="text-[#07C2E3] text-base font-black font-mono">$4,850.00</span>
+        {/* Card 4: 节省成本 */}
+        <div className="bg-[#121314] text-white border border-[#2d2e30] rounded-xl p-4 shadow-sm flex flex-col justify-between hover:border-[#07C2E3]/50 transition-colors text-left relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-450 font-bold">节省成本</span>
+            <div className="w-7 h-7 rounded-lg bg-[#e6fafc]/10 flex items-center justify-center">
+              <Zap className="w-4 h-4 text-[#07C2E3]" />
+            </div>
           </div>
-          <p className="text-[10px] text-slate-500">相当于海外人工客服 184 工时</p>
+          <div className="mt-2.5 flex items-baseline gap-1.5">
+            <span className="text-2xl font-black font-mono text-[#07C2E3]">$428.50</span>
+          </div>
         </div>
 
       </div>
 
       {/* ========================================== */}
-      {/* 第四排：核心功能快捷入口 */}
+      {/* 核心功能快捷入口 */}
       {/* ========================================== */}
       <div className="text-left space-y-2">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">核心模块快捷入口</h3>
+        <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">快捷入口</h3>
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           
           <button 
@@ -312,30 +325,30 @@ export default function SaaSMerchantWorkbench({
             className="p-3 bg-white border border-slate-200 hover:border-[#07C2E3] hover:shadow-sm rounded-xl text-left transition-all active:scale-95 flex flex-col justify-between h-20 cursor-pointer"
           >
             <Package className="w-5 h-5 text-slate-700" />
-            <span className="text-xs font-bold text-slate-800">商品管理 &rarr;</span>
+            <span className="text-xs font-bold text-slate-800">商品管理</span>
           </button>
-
+ 
           <button 
             type="button"
             onClick={() => {
               addLog('Shortcut', '直达订单中心', '查看当前交易订单', 'info');
-              onToggleCommandCenter();
+              onSwitchTab('orders');
             }}
             className="p-3 bg-white border border-slate-200 hover:border-[#07C2E3] hover:shadow-sm rounded-xl text-left transition-all active:scale-95 flex flex-col justify-between h-20 cursor-pointer"
           >
             <ShoppingCart className="w-5 h-5 text-slate-700" />
-            <span className="text-xs font-bold text-slate-800">订单管理 &rarr;</span>
+            <span className="text-xs font-bold text-slate-800">订单管理</span>
           </button>
-
+ 
           <button 
             type="button"
             onClick={() => addLog('Shortcut', '直达客户中枢', '加载注册消费者统计数据', 'info')}
             className="p-3 bg-white border border-slate-200 hover:border-[#07C2E3] hover:shadow-sm rounded-xl text-left transition-all active:scale-95 flex flex-col justify-between h-20 cursor-pointer"
           >
             <Users className="w-5 h-5 text-slate-700" />
-            <span className="text-xs font-bold text-slate-800">客户管理 &rarr;</span>
+            <span className="text-xs font-bold text-slate-800">客户管理</span>
           </button>
-
+ 
           <button 
             type="button"
             onClick={() => {
@@ -345,25 +358,25 @@ export default function SaaSMerchantWorkbench({
             className="p-3 bg-white border border-slate-200 hover:border-[#07C2E3] hover:shadow-sm rounded-xl text-left transition-all active:scale-95 flex flex-col justify-between h-20 cursor-pointer"
           >
             <Clock className="w-5 h-5 text-slate-700" />
-            <span className="text-xs font-bold text-slate-800">库存管理 &rarr;</span>
+            <span className="text-xs font-bold text-slate-800">库存管理</span>
           </button>
-
+ 
           <button 
             type="button"
             onClick={() => addLog('Shortcut', '直达营销中心', '全渠道活动优惠编排', 'info')}
             className="p-3 bg-white border border-slate-200 hover:border-[#07C2E3] hover:shadow-sm rounded-xl text-left transition-all active:scale-95 flex flex-col justify-between h-20 cursor-pointer"
           >
             <Megaphone className="w-5 h-5 text-slate-700" />
-            <span className="text-xs font-bold text-slate-800">营销中心 &rarr;</span>
+            <span className="text-xs font-bold text-slate-800">营销中心</span>
           </button>
-
+ 
           <button 
             type="button"
             onClick={() => addLog('Shortcut', '直达财务中心', '清分本期交易资金扣减', 'info')}
             className="p-3 bg-white border border-slate-200 hover:border-[#07C2E3] hover:shadow-sm rounded-xl text-left transition-all active:scale-95 flex flex-col justify-between h-20 cursor-pointer"
           >
             <Coins className="w-5 h-5 text-slate-700" />
-            <span className="text-xs font-bold text-slate-800">财务中心 &rarr;</span>
+            <span className="text-xs font-bold text-slate-800">财务中心</span>
           </button>
 
         </div>
@@ -442,66 +455,81 @@ export default function SaaSMerchantWorkbench({
       {/* ========================================== */}
       {/* 第五排：最近任务 (精简表格) */}
       {/* ========================================== */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm flex flex-col text-left">
+      <div className="bg-white border border-slate-200/80 rounded-xl overflow-hidden shadow-xs flex flex-col text-left">
         
-        <div className="px-5 py-4 border-b border-slate-150 flex items-center justify-between bg-slate-50/50">
-          <div className="space-y-1">
-            <h3 className="font-extrabold text-slate-800 text-sm">最近任务</h3>
-            <p className="text-[10px] text-slate-500">自动监控和同步业务模块的任务进度与当前状态。</p>
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="space-y-0.5">
+            <h3 className="font-bold text-slate-900 text-sm tracking-tight">最近任务</h3>
+            <p className="text-[11px] text-slate-400">实时智能任务流执行概览与人工干预日志</p>
           </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider select-none">
-                <th className="p-3 w-16">任务编号</th>
-                <th className="p-3">任务类型</th>
-                <th className="p-3">所属模块</th>
-                <th className="p-3">创建时间</th>
-                <th className="p-3">当前状态</th>
-                <th className="p-3 text-center">操作</th>
+              <tr className="bg-slate-50/50 border-b border-slate-150 text-[10px] font-semibold text-slate-400 uppercase tracking-wider select-none">
+                <th className="px-5 py-3.5 w-20 font-mono text-center">任务编号</th>
+                <th className="px-5 py-3.5">任务内容</th>
+                <th className="px-5 py-3.5">业务模块</th>
+                <th className="px-5 py-3.5">执行耗时 / 触发</th>
+                <th className="px-5 py-3.5">模型决策状态</th>
+                <th className="px-5 py-3.5 text-right">人工调度</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
               {tasks.map((task) => {
-                let badgeClass = 'bg-slate-100 text-slate-500';
-                if (task.status === '已完成') badgeClass = 'bg-emerald-50 text-emerald-700 border border-emerald-100';
-                if (task.status === '执行中') badgeClass = 'bg-sky-50 text-[#07C2E3] border border-sky-100 animate-pulse';
-                if (task.status === '待执行') badgeClass = 'bg-amber-50 text-amber-700 border border-amber-100';
-                if (task.status === '失败') badgeClass = 'bg-rose-50 text-rose-700 border border-rose-100';
-
                 return (
-                  <tr key={task.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="p-3 font-mono text-slate-400 font-bold">#{task.id}</td>
-                    <td className="p-3 text-slate-900 font-bold">{task.taskType}</td>
-                    <td className="p-3">
-                      <span className="bg-slate-100 text-slate-700 text-[10px] px-2 py-0.5 rounded">
+                  <tr key={task.id} className="hover:bg-slate-50/30 transition-colors">
+                    <td className="px-5 py-3.5 font-mono text-slate-400 font-bold text-center">#{task.id}</td>
+                    <td className="px-5 py-3.5 text-slate-900 font-bold">{task.taskType}</td>
+                    <td className="px-5 py-3.5">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100/90 text-slate-600 border border-slate-200/40">
                         {task.targetModule}
                       </span>
                     </td>
-                    <td className="p-3 font-mono text-slate-400 text-[10px]">{task.time}</td>
-                    <td className="p-3">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-lg font-bold leading-none ${badgeClass}`}>
-                        {task.status}
-                      </span>
+                    <td className="px-5 py-3.5 font-mono text-slate-500 text-[10px]">{task.time}</td>
+                    <td className="px-5 py-3.5">
+                      {task.status === '已完成' && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/50">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                          已完成
+                        </span>
+                      )}
+                      {task.status === '执行中' && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-[#07C2E3] border border-sky-200/50 animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#07C2E3]"></span>
+                          执行中
+                        </span>
+                      )}
+                      {task.status === '待执行' && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200/50">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                          待执行
+                        </span>
+                      )}
+                      {task.status === '失败' && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-250/50">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                          失败
+                        </span>
+                      )}
                     </td>
-                    <td className="p-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
                           onClick={() => {
                             addLog('Task', '查看业务任务', `查看：${task.taskType}`, 'info');
                           }}
-                          className="px-2 py-1 bg-[#e6fafc] hover:bg-[#bef1fa] text-[#07C2E3] font-bold text-[9px] rounded transition-transform active:scale-95"
+                          className="px-2.5 py-1 text-[10px] font-bold text-slate-600 bg-white hover:bg-slate-50 border border-slate-200 rounded-md transition-all active:scale-95 cursor-pointer shadow-xs"
                           title="查看任务详情"
                         >
-                          查看
+                          详情
                         </button>
                         <button
                           type="button"
                           onClick={() => handleTriggerTaskRun(task.id)}
-                          className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 font-bold text-[9px] rounded transition-transform active:scale-95"
+                          className="px-2.5 py-1 text-[10px] font-bold text-[#07C2E3] hover:text-[#06B2D0] bg-[#e6fafc]/40 hover:bg-[#e6fafc]/80 border border-cyan-100/55 rounded-md transition-all active:scale-95 cursor-pointer"
                           title="立即重新运行任务"
                         >
                           重试
@@ -510,10 +538,10 @@ export default function SaaSMerchantWorkbench({
                           <button
                             type="button"
                             onClick={() => handleStopTaskRun(task.id)}
-                            className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[9px] rounded transition-transform active:scale-95"
+                            className="px-2.5 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-md transition-all active:scale-95 cursor-pointer"
                             title="取消该任务运行"
                           >
-                            取消
+                            中断
                           </button>
                         )}
                       </div>

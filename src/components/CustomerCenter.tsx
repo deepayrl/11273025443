@@ -82,6 +82,14 @@ export default function CustomerCenter({
 
   // Task 01: Customer view states
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerItem | null>(null);
+
+  // Track active customerId in context
+  React.useEffect(() => {
+    const activeId = selectedCustomer?.id || selectedCustomerIds[0] || (customers[0]?.id || undefined);
+    if (typeof window !== 'undefined' && window.AIContextTracker) {
+      window.AIContextTracker.setCustomerId(activeId);
+    }
+  }, [selectedCustomer?.id, selectedCustomerIds, customers]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTier, setFilterTier] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -1184,7 +1192,7 @@ export default function CustomerCenter({
                   <Award className="w-5 h-5 text-[#07C2E3]" />
                   <span>[Task 02] 积分会员层级体系</span>
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">多租户独立积分判定。由买家可用商铺总积分阈值判定判定，系统执行秒级升级，自动流转优惠权益。</p>
+                <p className="text-xs text-[#07C2E3] font-mono mt-0.5 font-bold">LOYALTY_TIERS</p>
               </div>
               <button
                 onClick={() => {
@@ -1354,7 +1362,7 @@ export default function CustomerCenter({
                   <Coins className="w-4 h-4 text-amber-500" />
                   <span>积分即时变动录入</span>
                 </h4>
-                <p className="text-[10px] text-slate-450 mt-1">请在右边选中客户对其进行积分结算。严格记录增量与减量，支持可审计的操作原因追溯记录。</p>
+                <p className="text-[10px] text-[#07C2E3] font-mono mt-1 font-bold">POINTS_ENTRY</p>
               </div>
 
               {selectedCustomer ? (
@@ -1513,7 +1521,7 @@ export default function CustomerCenter({
                   <Tag className="w-4 h-4 text-[#07C2E3]" />
                   <span>新建属性特征标志</span>
                 </h4>
-                <p className="text-[10px] text-slate-450 mt-1">全局唯一标志。由 CRM 解析至不同物理隔离商铺下，支持批量绑定多位用户特征标签。</p>
+                <p className="text-[10px] text-[#07C2E3] font-mono mt-1 font-bold">TAG_DB</p>
               </div>
 
               <form onSubmit={handleCreateGlobalTag} className="space-y-3">
@@ -1665,7 +1673,7 @@ export default function CustomerCenter({
                   <Layers className="w-4 h-4 text-[#07C2E3]" />
                   <span>建立条件式智能筛查组</span>
                 </h4>
-                <p className="text-[10px] text-slate-450 mt-1">设置规则参数，由系统实时核对物理隔离数据源。当符合规则买家激增时，将动态追加到新分群。</p>
+                <p className="text-[10px] text-[#07C2E3] font-mono mt-1 font-bold">SEGMENTATION</p>
               </div>
 
               <form onSubmit={handleCreateConditionSegment} className="space-y-4">
@@ -1818,7 +1826,7 @@ export default function CustomerCenter({
                   <FileSpreadsheet className="w-5 h-5 text-[#07C2E3]" />
                   <span>[Task 07] CRM 高阶批量数据归类导入与备份</span>
                 </h3>
-                <p className="text-xs text-slate-400 mt-1">支持国际标准 CSV。系统支持动态去同名邮箱、防积分负值纠断及等级阶梯自动判定匹配算子。</p>
+                <p className="text-xs text-[#07C2E3] font-mono mt-1 font-bold">CSV_IMPORT</p>
               </div>
               <button
                 onClick={handleDownloadStandardTemplate}

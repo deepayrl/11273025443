@@ -415,15 +415,9 @@ export default function MarketingCenter({
             <Megaphone className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="font-extrabold text-slate-900 font-sans text-sm leading-tight flex items-center gap-2">
-              <span>全渠道核心营销中心</span>
-              <span className="bg-[#07C2E3]/15 text-[#07C2E3] text-[9px] font-mono tracking-widest uppercase font-bold px-2 py-0.5 rounded-sm">
-                Marketing Hub
-              </span>
+            <h2 className="font-extrabold text-slate-900 font-sans text-sm leading-tight">
+              <span>营销中心</span>
             </h2>
-            <p className="text-[10px] text-slate-500 font-mono mt-0.5">
-              支持多租户独立隔离优惠券、ROI广告组、精细化模板工厂，支持 AI Command Center 异步批量调派。
-            </p>
           </div>
         </div>
         <div className="flex items-center gap-2 font-mono text-[10px] bg-slate-50 border border-slate-150 rounded-lg px-3 py-1.5 select-none font-bold">
@@ -518,7 +512,6 @@ export default function MarketingCenter({
             <div className="p-4 border-b border-slate-150 flex items-center justify-between bg-slate-50/15">
               <div>
                 <h3 className="font-extrabold text-slate-900 font-sans text-xs">可用优惠券控制台</h3>
-                <p className="text-[10px] text-slate-400 font-mono mt-0.5">自主设置无门槛代金密令、满减比例阶梯券。支持一键封禁与核算指标看板。</p>
               </div>
               <button
                 onClick={() => setShowAddCouponModal(true)}
@@ -664,7 +657,7 @@ export default function MarketingCenter({
               <div className="p-4 border-b border-slate-150 flex items-center justify-between bg-slate-50/15">
                 <div>
                   <h3 className="font-extrabold text-slate-900 font-sans text-xs">广告活动统计</h3>
-                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">监控全媒体（邮箱、Google、Meta、WhatsApp）广告花费、广告收入以及 ROI 的计算指标大盘。</p>
+                  <p className="text-[10px] text-[#07C2E3] font-mono mt-0.5 font-bold">CAMPAIGNS</p>
                 </div>
                 <button
                   onClick={() => setShowAddCampaignModal(true)}
@@ -772,7 +765,7 @@ export default function MarketingCenter({
                   <Award className="w-4 h-4 text-[#07C2E3]" />
                   <span>自动化客户等级联动规则规则库</span>
                 </h4>
-                <p className="text-[10px] text-slate-400 font-mono mt-0.5">当买家通过消费或积分扣赠达到相应阶梯体系时，配置系统瞬时调度的策略规则。</p>
+                <p className="text-[10px] text-[#07C2E3] font-mono mt-0.5 font-bold">LOYALTY_RULES</p>
               </div>
 
               <div className="space-y-4 text-xs font-sans">
@@ -867,7 +860,7 @@ export default function MarketingCenter({
                     <TrendingUp className="w-4 h-4 text-emerald-500" />
                     <span>特定群组促销直连工具</span>
                   </h4>
-                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">根据现存租户的实际客户等级，直接向目标层级派发特定权益密令。</p>
+                  <p className="text-[10px] text-[#07C2E3] font-mono mt-0.5 font-bold">SEGMENT_TOOLS</p>
                 </div>
 
                 <div className="space-y-3 font-medium text-xs">
@@ -939,7 +932,7 @@ export default function MarketingCenter({
                   <Send className="w-4 h-4 text-[#07C2E3]" />
                   <span>多通路并发群投大看板</span>
                 </h4>
-                <p className="text-[10px] text-slate-400 font-mono mt-0.5">在此一键挑选营销分发介质通道，针对选定的多租户过滤受众调遣并自动跟踪 CTR 指标。</p>
+                <p className="text-[10px] text-[#07C2E3] font-mono mt-0.5 font-bold">DISPATCH_BOARD</p>
               </div>
 
               <div className="space-y-4 text-xs font-sans">
@@ -1054,7 +1047,7 @@ export default function MarketingCenter({
                       <Layers className="w-4 h-4 text-emerald-500" />
                       <span>本次投发受众明细与变量效果试看 ({matchedAudienceList.length}人位)</span>
                     </h4>
-                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">当选中「立投密信」后，以下客群明细将作为通讯密使实时写入分发历史轨迹中。</p>
+                    <p className="text-[10px] text-[#07C2E3] font-mono mt-0.5 font-bold">PREVIEW_FLOW</p>
                   </div>
                   <span className="text-[10px] font-mono text-slate-400 font-bold bg-slate-50 border border-slate-150 py-0.5 px-2 rounded">对账预览模式</span>
                 </div>
@@ -1137,7 +1130,7 @@ export default function MarketingCenter({
             <div className="p-4 border-b border-slate-150 flex items-center justify-between bg-slate-50/15">
               <div>
                 <h3 className="font-extrabold text-slate-900 font-sans text-xs">消息模板工厂</h3>
-                <p className="text-[10px] text-slate-400 font-mono mt-0.5">创建格式统一的邮件或短消息模版。支持通过插值占位符（如姓名、金额、行业名称）在发送阶段动态渲染。</p>
+                <p className="text-[10px] text-[#07C2E3] font-mono mt-0.5 font-bold">TEMPLATES</p>
               </div>
               <button
                 onClick={() => setShowAddTemplateModal(true)}
@@ -1203,7 +1196,7 @@ export default function MarketingCenter({
             <div className="p-4 border-b border-slate-150 flex items-center justify-between bg-slate-50/15 select-none animate-fadeIn">
               <div>
                 <h3 className="font-extrabold text-slate-900 font-sans text-xs">全通路历史发送和到达详情 (Audit Trails)</h3>
-                <p className="text-[10px] text-slate-400 font-mono mt-0.5">监控所有数字营销项目的邮件、短信和 WhatsApp 实时投递详情、到达状态跟踪（已送达 / 已开启 / 已点击 ）。</p>
+                <p className="text-[10px] text-[#07C2E3] font-mono mt-0.5 font-bold">SENDING_LOGS</p>
               </div>
               <span className="text-[9px] font-mono text-slate-400 font-bold uppercase tracking-wider">实时监听网关开启</span>
             </div>

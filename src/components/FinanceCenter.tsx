@@ -418,7 +418,6 @@ export default function FinanceCenter({
             <Coins className="w-4 h-4 text-[#07C2E3]" />
             <span className="font-extrabold text-sm tracking-tight text-slate-900">财务中心</span>
           </div>
-          <p className="text-[10px] text-slate-400 font-mono mt-0.5">Automated Billing</p>
         </div>
 
         <button
@@ -480,7 +479,6 @@ export default function FinanceCenter({
           <div className="space-y-6 animate-fadeIn text-left">
             <div className="border-b border-slate-100 pb-3">
               <h2 className="text-sm font-extrabold text-slate-900">核心财务指标</h2>
-              <p className="text-[10px] text-slate-400 font-mono">Dynamic sales and pending settlement metrics</p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -656,7 +654,7 @@ export default function FinanceCenter({
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900">自动对公发票管理</h3>
-                <p className="text-[10px] text-slate-400 font-mono">Auto generated billing drafts for EU clients. Tap to finalize below.</p>
+                <p className="text-[10px] text-[#07C2E3] font-mono font-bold">BILLING_DRAFTS</p>
               </div>
               <span className="text-[10px] text-slate-400 font-mono">企业标准 VAT: 20%</span>
             </div>
@@ -756,7 +754,7 @@ export default function FinanceCenter({
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900">到账提现记录</h3>
-                <p className="text-[10px] text-slate-400 font-mono">Withdraw sales revenues instantly into your linked corporate bank.</p>
+                <p className="text-[10px] text-[#07C2E3] font-mono font-bold">WITHDRAWALS</p>
               </div>
               
               <button
@@ -812,7 +810,7 @@ export default function FinanceCenter({
           <div className="space-y-4 animate-fadeIn text-left">
             <div className="border-b border-slate-100 pb-2.5">
               <h3 className="text-sm font-extrabold text-slate-900">退款及售后记录</h3>
-              <p className="text-[10px] text-slate-400 font-mono">Refunded billing trace entries. Process and reverse payouts cleanly.</p>
+              <p className="text-[10px] text-[#07C2E3] font-mono font-bold">REFUNDS</p>
             </div>
 
             <div className="border border-slate-200 bg-white rounded-xl overflow-hidden shadow-2xs">
@@ -867,7 +865,7 @@ export default function FinanceCenter({
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900">收单交易明细</h3>
-                <p className="text-[10px] text-slate-400 font-mono">Real-time payment transaction ledger linked to merchant acquirers.</p>
+                <p className="text-[10px] text-[#07C2E3] font-mono font-bold">LEDGER</p>
               </div>
               <span className="text-[10px] bg-[#07C2E3]/15 text-[#07C2E3] px-2 py-0.5 rounded font-black font-mono">
                 EUR (€) BASE

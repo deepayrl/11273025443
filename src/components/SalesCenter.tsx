@@ -32,8 +32,8 @@ export default function SalesCenter({ orders, companyName, addLog }: SalesCenter
   const [searchQuery, setSearchQuery] = useState<string>('');
   
   // Modal states
-  const [selectedOrder, setSelectedOrder] = useState<OrderItem | null>(null);
-  const [reviewOrder, setReviewOrder] = useState<OrderItem | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<(OrderItem & { channel: string; paymentStatus: string }) | null>(null);
+  const [reviewOrder, setReviewOrder] = useState<(OrderItem & { channel: string; paymentStatus: string }) | null>(null);
 
   // Initialize simulated orders with mapped channels
   const [localOrders, setLocalOrders] = useState<(OrderItem & { channel: string; paymentStatus: string })[]>(() => {
@@ -156,10 +156,10 @@ export default function SalesCenter({ orders, companyName, addLog }: SalesCenter
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <h2 className="text-lg font-bold tracking-tight text-slate-900">
-            {companyName} · 销售中心
+            销售中心 · SALES
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            实时统计多渠道销售流水。支持在不打扰AI自动运行的前提下进行人工审核与单据导出。
+          <p className="text-[10px] text-[#07C2E3] font-mono font-bold mt-0.5 tracking-wider uppercase">
+            TRADE_CORE_LEDGER • READY
           </p>
         </div>
         <button
@@ -167,7 +167,7 @@ export default function SalesCenter({ orders, companyName, addLog }: SalesCenter
           className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2 px-3.5 rounded-lg flex items-center gap-1.5 shadow transition-all active:scale-95 cursor-pointer"
         >
           <Download className="w-3.5 h-3.5" />
-          <span>导出当前全部报表</span>
+          <span>导出报表</span>
         </button>
       </div>
 

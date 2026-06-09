@@ -184,12 +184,12 @@ export default function DocTreeViewer() {
         <div className="md:col-span-8 bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-6 shadow-md border border-indigo-950 flex flex-col justify-between relative overflow-hidden">
           <div className="relative z-10 space-y-4">
             <div>
-              <span className="text-[9px] bg-indigo-500/20 text-indigo-300 font-bold uppercase tracking-widest px-2.5 py-1 rounded border border-indigo-505/30">
-                SaaS Operating System Blueprint
+              <span className="text-[9px] bg-indigo-500/20 text-indigo-300 font-bold uppercase tracking-widest px-2.5 py-1 rounded border border-indigo-500/30">
+                系统需求大纲
               </span>
-              <h3 className="text-xl md:text-2xl font-bold font-display mt-2.5">AI BUSINESS OS 系统需求树跟踪器</h3>
+              <h3 className="text-xl md:text-2xl font-bold font-display mt-2.5">需求指标体系</h3>
               <p className="text-xs text-slate-300 font-normal leading-relaxed max-w-xl mt-1.5">
-                此产品需求文档树完全基于客户提供的商用系统框架文档开发，实时对照系统大纲与核心功能，标注具体架构树模块的上线情况。
+                实时跟踪核算系统模块运行状况
               </p>
             </div>
 

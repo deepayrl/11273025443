@@ -296,7 +296,7 @@ export default function PaymentCenter({
             <Coins className="w-4 h-4 text-[#07C2E3]" />
             <span className="font-extrabold text-sm tracking-tight text-slate-900">支付中心 (Payments)</span>
           </div>
-          <p className="text-[10px] text-slate-400 font-mono mt-0.5">Shopify Pay & Stripe</p>
+          <p className="text-[10px] text-[#07C2E3] font-mono mt-0.5 font-bold uppercase">STRIPE_CORE</p>
         </div>
 
         <button
@@ -569,7 +569,7 @@ export default function PaymentCenter({
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-150 pb-3">
               <div>
                 <h3 className="font-extrabold text-slate-900 text-sm">支付订单 (Transactions)</h3>
-                <p className="text-[10px] text-slate-400 font-mono">Every incoming checkout session mapped dynamically</p>
+                <p className="text-[10px] text-[#07C2E3] font-mono font-bold uppercase">ORDER_FLOW</p>
               </div>
 
               <div className="flex flex-wrap gap-2 w-full sm:w-auto">
@@ -676,7 +676,7 @@ export default function PaymentCenter({
             
             <div className="border-b border-slate-150 pb-3">
               <h3 className="font-extrabold text-slate-900 text-sm">支付接口及收单渠道配置 (Gateways)</h3>
-              <p className="text-[10px] text-slate-400 font-mono">Enable direct secure payment settlement channels instantly</p>
+              <p className="text-[10px] text-[#07C2E3] font-mono font-bold uppercase">GATEWAYS</p>
             </div>
 
             {/* Custom integrated top warning banner if usdc simulation is loaded */}
@@ -819,7 +819,7 @@ export default function PaymentCenter({
             
             <div className="border-b border-slate-150 pb-2">
               <h3 className="font-extrabold text-slate-900 text-sm">商户钱包 (Wallet Ledger)</h3>
-              <p className="text-[10px] text-slate-400 font-mono">Durable store wallet accounts</p>
+              <p className="text-[10px] text-[#07C2E3] font-mono font-bold uppercase">LEDGER</p>
             </div>
 
             {/* Balances list */}
@@ -915,7 +915,7 @@ export default function PaymentCenter({
           <div className="space-y-4 animate-fadeIn">
             <div className="border-b border-slate-150 pb-2">
               <h3 className="font-extrabold text-slate-900 text-sm">提现记录 (Payout Ledger)</h3>
-              <p className="text-[10px] text-slate-400 font-mono">Historic funds dispersion checklist</p>
+              <p className="text-[10px] text-[#07C2E3] font-mono font-bold uppercase">PAYOUTLOG</p>
             </div>
 
             <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
@@ -960,7 +960,7 @@ export default function PaymentCenter({
           <div className="space-y-4 animate-fadeIn">
             <div className="border-b border-slate-150 pb-2">
               <h3 className="font-extrabold text-slate-900 text-sm">退款管理 (Refunds)</h3>
-              <p className="text-[10px] text-slate-400 font-mono">Approve or reject customer chargeback requests directly</p>
+              <p className="text-[10px] text-[#07C2E3] font-mono font-bold uppercase">REFUNDS</p>
             </div>
 
             {/* Quick Refund request list */}

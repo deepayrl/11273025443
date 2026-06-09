@@ -2,7 +2,19 @@
  * AI Commerce OS - Data Types
  */
 
-export type IndustryType = 'retail' | 'food' | 'education' | 'healthcare' | 'service' | 'manufacturing';
+export type IndustryType = 
+  | 'retail' 
+  | 'food' 
+  | 'education' 
+  | 'healthcare' 
+  | 'service' 
+  | 'manufacturing'
+  | 'fashion_wholesale' 
+  | 'restaurant_takeout' 
+  | 'general_merch_electronics' 
+  | 'beauty_booking' 
+  | 'ecommerce_store' 
+  | 'pos_retail';
 
 export interface TenantConfig {
   id: string;
@@ -43,6 +55,9 @@ export interface OrderItem {
   status: 'Pending' | 'AI Confirmed' | 'Shipped' | 'Refund Requested' | 'Refunded' | 'Completed' | 'Cancelled';
   createdAt: string;
   riskScore: number; // 0 to 100 calculated by AI
+  shippingAddress?: string;
+  paymentMethod?: string;
+  items?: { productId?: string; sku?: string; name: string; price: number; quantity?: number; qty?: number }[];
 }
 
 export interface AIEmployee {
@@ -144,5 +159,60 @@ export interface CustomerItem {
   createdAt: string;
   lastOrderAt?: string;
 }
+
+// SaaS Operator & Super Admin Types
+export interface SaaSPlan {
+  id: 'starter' | 'pro' | 'enterprise';
+  name: string;
+  priceMonthly: number;
+  transactionFeePct: number;
+  dailyApiLimit: number;
+  storageLimitGb: number;
+  grantedAiTokens: number;
+  features: string[];
+}
+
+export interface PaymentGatewayConfig {
+  id: 'stripe' | 'adyen' | 'base_usdc' | 'custom';
+  name: string;
+  publicKey: string;
+  secretKey: string;
+  commissionPct: number;
+  status: 'active' | 'inactive';
+  supportedRegions: string[];
+}
+
+export interface SmsMailChannelConfig {
+  id: 'twilio' | 'sendgrid' | 'custom_smtp';
+  name: string;
+  apiKey: string;
+  senderId: string;
+  remainingCredits: number;
+  status: 'active' | 'inactive';
+  lowBalanceThreshold: number;
+}
+
+export interface AppInstallationTrace {
+  appId: string;
+  appName: string;
+  tenantId: string;
+  tenantName: string;
+  installedAt: string;
+  permissionsGranted: string[];
+  status: 'authorized' | 'revoked';
+}
+
+export interface PlatformGlobalAiConfig {
+  defaultModel: string;
+  systemSafeguardPrompt: string;
+  maxDailyTokenPool: number;
+  currentTokensUsed: number;
+  unauthorizedBlockText: string;
+}
+
+import { AIContext } from './types/AIContext';
+export type { AIContext };
+
+
 
 

@@ -21,8 +21,11 @@ import {
   CornerDownLeft, 
   FileCheck,
   Send,
-  Download
+  Download,
+  Printer,
+  Maximize2
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { OrderItem, ProductItem, IndustryType } from '../types';
 
 interface OrderCenterProps {
@@ -65,14 +68,139 @@ export default function OrderCenter({
 }: OrderCenterProps) {
   
   // Tab control inside Order Center
-  const [activeSubTab, setActiveSubTab] = useState<'all' | 'unshipped' | 'refunds' | 'tracking'>('all');
+  const [activeSubTab, setActiveSubTab] = useState<'all' | 'unshipped' | 'refunds' | 'tracking' | 'billing'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<EnrichedOrder | null>(null);
+
+  // States for Invoices & Billing
+  const [invoicedOrderIds, setInvoicedOrderIds] = useState<Record<string, boolean>>({
+    'ORD-2026-001': true,
+    'ORD-2026-003': true,
+  });
+  const [sentInvoiceIds, setSentInvoiceIds] = useState<Record<string, boolean>>({});
+  const [saasInvoices, setSaasInvoices] = useState<any[]>([
+    { id: 'INV-2026-904', date: '2026-06-05', desc: 'Shopify Premium SaaS Subscription Plan (Basic Package)', amount: 29.00, status: 'paid' },
+    { id: 'INV-2026-812', date: '2026-05-18', desc: 'Gemini Agent Orchestration API High-Token Surcharge', amount: 98.40, status: 'pending' },
+    { id: 'INV-2026-701', date: '2026-04-15', desc: 'EU-Wide Address Auto-Resolution Gateway Fee', amount: 12.00, status: 'overdue' }
+  ]);
+  const [billingSubTab, setBillingSubTab] = useState<'customer' | 'saas'>('customer');
+
+  // Track active orderId in context
+  React.useEffect(() => {
+    const activeId = selectedOrder?.id || (orders[0]?.id || undefined);
+    if (typeof window !== 'undefined' && window.AIContextTracker) {
+      window.AIContextTracker.setOrderId(activeId);
+    }
+  }, [selectedOrder?.id, orders]);
   const [showDispatchModal, setShowDispatchModal] = useState<EnrichedOrder | null>(null);
   const [showRefundModal, setShowRefundModal] = useState<EnrichedOrder | null>(null);
   const [showRiskModal, setShowRiskModal] = useState<EnrichedOrder | null>(null);
+  const [magnifiedOrder, setMagnifiedOrder] = useState<EnrichedOrder | null>(null);
   const [sortField, setSortField] = useState<'createdAt' | 'total'>('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Interactive checkout order generation matching real buyers
+  const handleCreateAutomatedSimulatedOrder = () => {
+    const randomBuyers = [
+      { name: "Schmidt Logistik GmbH", contact: "billing@schmidt-logistik.de", addr: "Kaiserstraße 12, 60311 Frankfurt am Main, Germany", pay: "EuroSEPA Bank Direct Transfer" },
+      { name: "Elena Rostova", contact: "elena.rostova@prague-design.cz", addr: "Vodičkova 36, 110 00 Praha 1, Czech Republic", pay: "Visa B2B Business Card" },
+      { name: "Jean-Pierre Laurent", contact: "jp.laurent@paris-fashion.fr", addr: "Avenue des Champs-Élysées 42, 75008 Paris, France", pay: "PayPal Corporate Standard" },
+      { name: "Sylvia van der Berg", contact: "accounting@vanderberg-textiles.nl", addr: "Keizersgracht 450, 1016 GD Amsterdam, Netherlands", pay: "MasterCard SecurePay" }
+    ];
+
+    const buyer = randomBuyers[Math.floor(Math.random() * randomBuyers.length)];
+    const orderId = `ORD-2026-` + Math.floor(1000 + Math.random() * 9000);
+    
+    const activeProducts = products.length > 0 ? products : [
+      { id: 'p1', name: '智能双轴激光数控雕刻机 v2', sku: 'SKU-CNC-L8V2', price: 1290.00, stock: 12, sales: 5, status: 'In Stock' },
+      { id: 'p2', name: '高通量多层高频PCB阻抗分析板', sku: 'SKU-PCB-A880', price: 340.00, stock: 45, sales: 8, status: 'In Stock' }
+    ];
+
+    const selectedProductsCount = Math.floor(Math.random() * 2) + 1; // 1 or 2 products
+    const selectedProds: any[] = [];
+    for (let i = 0; i < selectedProductsCount; i++) {
+      const p = activeProducts[Math.floor(Math.random() * activeProducts.length)];
+      if (!selectedProds.find(item => item.id === p.id)) {
+        selectedProds.push(p);
+      }
+    }
+
+    const orderItems = selectedProds.map(p => {
+      const qty = Math.floor(Math.random() * 2) + 1; // 1 or 2
+      return {
+        productId: p.id,
+        sku: p.sku,
+        name: p.name,
+        price: p.price,
+        qty: qty,
+        quantity: qty
+      };
+    });
+
+    const calculatedTotal = orderItems.reduce((acc, item) => acc + (item.price * item.qty), 0);
+    const riskFactor = Math.floor(Math.random() * 15) + 3; // secure clean orders by default
+
+    const newCreatedOrder: OrderItem = {
+      id: orderId,
+      customerName: buyer.name,
+      contact: buyer.contact,
+      total: calculatedTotal,
+      status: 'AI Confirmed', // instantly paid and confirmed
+      createdAt: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+      riskScore: riskFactor,
+      shippingAddress: buyer.addr,
+      paymentMethod: buyer.pay,
+      items: orderItems
+    };
+
+    // Append to existing list and sync to App.tsx
+    const updated = [newCreatedOrder, ...orders];
+    onUpdateOrders(updated);
+
+    // Force select this new order as active for preview
+    setSelectedOrder({
+      ...newCreatedOrder,
+      shippingAddress: buyer.addr,
+      paymentMethod: buyer.pay,
+      paymentStatus: '已支付',
+      shippingStatus: '待发货',
+      items: orderItems.map(it => ({
+        sku: it.sku || 'SKU-001',
+        name: it.name,
+        price: it.price,
+        qty: it.qty
+      })),
+      logisticsTimeline: [
+        { time: '2026-06-09 10:14', status: '已接单', desc: 'SaaS 跨境店铺主系统自动受理客户付款指令。' }
+      ]
+    });
+
+    // Also open the Magnificent/Interactive window automatically for delightful instant preview!
+    setMagnifiedOrder({
+      ...newCreatedOrder,
+      shippingAddress: buyer.addr,
+      paymentMethod: buyer.pay,
+      paymentStatus: '已支付',
+      shippingStatus: '待发货',
+      items: orderItems.map(it => ({
+        sku: it.sku || 'SKU-001',
+        name: it.name,
+        price: it.price,
+        qty: it.qty
+      })),
+      logisticsTimeline: [
+        { time: '2026-06-09 10:14', status: '已接单', desc: 'SaaS 跨境店铺主系统自动受理客户付款指令。' }
+      ]
+    });
+
+    // Add a log to operations
+    addLog(
+      'AI Checkout Core',
+      '在线模拟自主结算',
+      `模拟跨境商城前台有一位客户 [${buyer.name}] 对商品 [${orderItems.map(it => `${it.name} x${it.qty}`).join(', ')}] 完成付款。金额: EUR €${calculatedTotal.toFixed(2)}。生成订单 AWB #${orderId}，已触发自动对账并打开了高级放大预览窗口。`,
+      'success'
+    );
+  };
 
   // Hardcoded shipping details, products bought matching actual products list dynamically or fallback
   const enrichedOrders = useMemo<EnrichedOrder[]>(() => {
@@ -150,11 +278,18 @@ export default function OrderCenter({
 
       return {
         ...order,
-        shippingAddress: address,
-        paymentMethod: idx % 2 === 0 ? 'International Credit Card' : 'PayPal Standard Checkout',
+        shippingAddress: order.shippingAddress || address,
+        paymentMethod: order.paymentMethod || (idx % 2 === 0 ? 'International Credit Card' : 'PayPal Standard Checkout'),
         paymentStatus: payStatus,
         shippingStatus: shipStatus,
-        items: fallbackItems,
+        items: order.items 
+          ? order.items.map(it => ({
+              sku: it.sku || 'SKU-001',
+              name: it.name,
+              price: it.price,
+              qty: it.qty || it.quantity || 1
+            }))
+          : fallbackItems,
         carrier: carrier,
         trackingNumber: tracking,
         logisticsTimeline: logisticsTimeline.reverse(), // most recent first
@@ -313,6 +448,522 @@ export default function OrderCenter({
     addLog('Order Center', '单据导出', `导出并下载当前筛选的 ${displayOrders.length} 条跨境订单。格式: CSV。`, 'success');
   };
 
+  // ==================== Billing & Invoicing Integrated Handlers ====================
+  // Generate a draft invoice
+  const handleGenerateInvoice = (orderId: string) => {
+    setInvoicedOrderIds(prev => ({ ...prev, [orderId]: true }));
+    addLog(
+      'Billing Auditor', 
+      '自动生成订货发票', 
+      `已自动核验订单 [${orderId}]。拉取公司VAT信息及消费者地址并生成正规欧盟商业销账发票。发票号: INV-2026-N`, 
+      'success'
+    );
+  };
+
+  // Click to simulate direct print
+  const handlePrintAction = (invoiceId: string) => {
+    addLog(
+      'Billing Auditor',
+      '打印对公票据',
+      `触发发票 ${invoiceId} 本地打印队列。双向核销单联已传输至打印服务器。`,
+      'info'
+    );
+  };
+
+  // Send Order detail and invoice via Email
+  const handleSendOrder = (order: EnrichedOrder) => {
+    const defaultEmail = order.contact || `${order.customerName.toLowerCase().replace(' ', '')}@europa.eu`;
+    setSentInvoiceIds(prev => ({
+      ...prev,
+      [order.id]: true
+    }));
+    addLog(
+      'Order Dispatcher',
+      '发送订单明细与电子发票',
+      `系统已将订单 [#${order.id}] 的商品明细及其对应的 B2B 汇税对账款 PDF 单据直投发送至顾客邮箱 [${defaultEmail}]。投递状态：妥投成功 (Delivered)。`,
+      'success'
+    );
+  };
+
+  // Send Invoice via Email
+  const handleSendInvoice = (order: OrderItem) => {
+    const defaultEmail = order.contact || `${order.customerName.toLowerCase().replace(' ', '')}@europa.eu`;
+    setSentInvoiceIds(prev => ({
+      ...prev,
+      [order.id]: true
+    }));
+    addLog(
+      'Mail Daemon',
+      '自动对公投邮',
+      `发票已直接打包为 PDF，并安全发送至客户注册妥投信箱: ${defaultEmail}。无需手动输入。`,
+      'success'
+    );
+  };
+
+  // Download customer invoice PDF
+  const handleDownloadCustomerPDF = (order: OrderItem, idx: number) => {
+    try {
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+      
+      const mockInvoiceId = `INV-2026-FPR-${1892 + idx}`;
+      
+      // Top decorative brand accent
+      doc.setFillColor(7, 194, 227); // #07C2E3
+      doc.rect(15, 15, 25, 4, 'F');
+      
+      // Company header info on left
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42); // slate-900
+      doc.text('EU COMMERCE DIRECT S.r.l.', 15, 30);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139); // slate-500
+      doc.text('Avenue des Champs-Élysées, Paris, France', 15, 35);
+      doc.text('VAT Reg No: FR 0895312014', 15, 40);
+      doc.text('Email: billing@eucommercedirect.com', 15, 45);
+      
+      // Invoice details block on right
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(22);
+      doc.setTextColor(15, 23, 42);
+      doc.text('INVOICE / DEBIT NOTE', 195, 30, { align: 'right' });
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(7, 194, 227); // #07C2E3
+      doc.text(mockInvoiceId, 195, 37, { align: 'right' });
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Issue Date: ${order.createdAt}`, 195, 43, { align: 'right' });
+      doc.text('Due Date: 30 Days Net (Settled Online)', 195, 48, { align: 'right' });
+      
+      // Subtle Divider
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.line(15, 54, 195, 54);
+      
+      // Addresses grids (Bilateral billing cards)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184); // slate-400
+      doc.text('BILLED FROM', 15, 65);
+      doc.text('BILLED TO (BUYER)', 110, 65);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(30, 41, 59); // slate-800
+      doc.text('EU Commerce Direct S.r.l.', 15, 71);
+      doc.text(order.customerName, 110, 71);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105); // slate-600
+      doc.text('Corporate Settlement Center Office', 15, 76);
+      doc.text(order.contact || `${order.customerName.toLowerCase().replace(' ', '')}@europa.eu`, 110, 76);
+      doc.text('Avenue des Champs-Élysées, Paris, France', 15, 81);
+      doc.text(`MAPPED UNIFIED REF: SEPA-CUST-${order.customerName.slice(0, 3).toUpperCase()}`, 110, 81);
+      
+      // Line Items Table Block
+      doc.setFillColor(248, 250, 252); // slate-50
+      doc.rect(15, 95, 180, 8, 'F');
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text('DESCRIPTION OF GOODS / SERVICES', 18, 100);
+      doc.text('QTY', 120, 100, { align: 'center' });
+      doc.text('RATE (EUR)', 150, 100, { align: 'right' });
+      doc.text('TOTAL (EUR)', 190, 100, { align: 'right' });
+      
+      // Row detail entries
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`eShop Global Direct Purchase (Order Key: ${order.id})`, 18, 110);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`MAPPED SYSTEM SKU: OS-SKU-${order.id.slice(-4)}`, 18, 115);
+      
+      const netAmount = Math.round(order.total * 0.8333 * 100) / 100;
+      const vatAmount = Math.round((order.total - netAmount) * 100) / 100;
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(51, 65, 85);
+      doc.text('1', 120, 110, { align: 'center' });
+      doc.text(`EUR ${netAmount.toFixed(2)}`, 150, 110, { align: 'right' });
+      doc.text(`EUR ${netAmount.toFixed(2)}`, 190, 110, { align: 'right' });
+      
+      doc.setDrawColor(241, 245, 249);
+      doc.line(15, 122, 195, 122);
+      
+      // Soft-teal PAID banner stamp
+      doc.setFillColor(240, 253, 250); // teal-50
+      doc.rect(15, 130, 52, 22, 'F');
+      doc.setDrawColor(153, 246, 228); // teal-200
+      doc.rect(15, 130, 52, 22, 'S');
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(13, 148, 136); // teal-600
+      doc.text('PAYMENT STATUS', 41, 136, { align: 'center' });
+      doc.setFontSize(11);
+      doc.text('PAID / SETTLED', 41, 143, { align: 'center' });
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Subtotal:', 150, 130, { align: 'right' });
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`EUR ${netAmount.toFixed(2)}`, 190, 130, { align: 'right' });
+      
+      doc.setFont('helvetica', 'normal');
+      doc.text('VAT / IVA (20%):', 150, 136, { align: 'right' });
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`EUR ${vatAmount.toFixed(2)}`, 190, 136, { align: 'right' });
+      
+      doc.setDrawColor(226, 232, 240);
+      doc.line(120, 142, 195, 142);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Gross Total Sum:', 150, 149, { align: 'right' });
+      doc.setTextColor(7, 194, 227); // #07C2E3
+      doc.text(`EUR ${order.total.toFixed(2)}`, 190, 149, { align: 'right' });
+      
+      // SEPA direct remittance details
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text('REMITTANCE / SEPA CLEARING STATUS DETAILS', 15, 165);
+      doc.setDrawColor(241, 245, 249);
+      doc.line(15, 168, 195, 168);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(51, 65, 85);
+      doc.text('Settlement Bank:', 15, 174); doc.setFont('helvetica', 'normal'); doc.text('BNP Paribas SA (Paris, France)', 42, 174);
+      doc.setFont('helvetica', 'bold'); doc.text('Clearing IBAN:', 15, 180); doc.setFont('helvetica', 'normal'); doc.text('FR76 3000 4012 9021 8492 01', 42, 180);
+      doc.setFont('helvetica', 'bold'); doc.text('SWIFT-BIC Code:', 15, 186); doc.setFont('helvetica', 'normal'); doc.text('BNPAFRPPXXX', 42, 186);
+      doc.setFont('helvetica', 'bold'); doc.text('Settlement Key:', 15, 192); doc.setFont('helvetica', 'normal'); doc.text(`SETTLE-${order.id}-FPR`, 42, 192);
+      
+      // Footer audit text
+      doc.setDrawColor(226, 232, 240);
+      doc.line(15, 215, 195, 215);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text('This invoice has been automatically generated, audited and cleared under the guidelines of EU Council Directive 2006/112/EC on the common VAT system.', 15, 221);
+      doc.text('Transacted client funds have been securely cleared in real-time through the SEPA network directly to the merchant\'s account. Paid state is locked.', 15, 225);
+      doc.text('Many thanks for your custom. Automatically managed via AI Commerce OS.', 15, 229);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(7, 194, 227);
+      doc.text('AI COMMERCE OS', 195, 240, { align: 'right' });
+      
+      // Download trigger
+      doc.save(`${mockInvoiceId}.pdf`);
+      
+      addLog(
+        'Invoice Auditor',
+        '生成 PDF 账单已妥投',
+        `欧盟商业合规 PDF 发票 [${mockInvoiceId}] 已打包生成并自动触发浏览器本地端下载。金额: €${order.total.toFixed(2)}。`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error(err);
+      addLog('Invoice Auditor', '生成 PDF 失败', `生成过程发生错误: ${err.message}`, 'error');
+    }
+  };
+
+  // SaaS Invoice PDF Generation
+  const handleDownloadSaaSInvoicePDF = (inv: any) => {
+    try {
+      const doc = new jsPDF();
+      
+      // Invoice branding header
+      doc.setFillColor(7, 194, 227); // #07C2E3
+      doc.rect(0, 0, 210, 15, 'F');
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(255, 255, 255);
+      doc.text('AI COMMERCE OS - OFFICIAL INVOICE', 15, 10);
+      
+      // Billing metadata
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.setTextColor(15, 23, 42); // slate-900
+      doc.text('INVOICE / FACTURE', 15, 35);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139); // slate-500
+      doc.text(`Invoice ID:`, 15, 45);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(51, 65, 85);
+      doc.text(inv.id, 45, 45);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Issue Date:`, 15, 51);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(51, 65, 85);
+      doc.text(inv.date, 45, 51);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`SaaS Tenant:`, 15, 57);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(51, 65, 85);
+      doc.text('Aurora S.R.L. (SaaS Tenant)', 45, 57);
+
+      // Issuer / Provider details on the right
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(51, 65, 85);
+      doc.text('Billing Provider / Issuer:', 130, 35);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('AI Commerce OS Europe S.A.R.L.', 130, 41);
+      doc.text('VAT ID No: EU892019203', 130, 46);
+      doc.text('Rue de la Paix, Paris, France', 130, 51);
+      
+      // Table header
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.setLineWidth(0.5);
+      doc.line(15, 70, 195, 70);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105); // slate-600
+      doc.text('Service Description', 15, 76);
+      doc.text('Qty', 120, 76, { align: 'center' });
+      doc.text('Unit Price', 150, 76, { align: 'right' });
+      doc.text('Total (EUR)', 195, 76, { align: 'right' });
+      
+      doc.line(15, 82, 195, 82);
+      
+      // Item row
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(51, 65, 85);
+      
+      const splitDesc = doc.splitTextToSize(inv.desc, 95);
+      doc.text(splitDesc, 15, 90);
+      doc.text('1', 120, 90, { align: 'center' });
+      doc.text(`EUR ${inv.amount.toFixed(2)}`, 150, 90, { align: 'right' });
+      doc.text(`EUR ${inv.amount.toFixed(2)}`, 195, 90, { align: 'right' });
+      
+      const textHeight = splitDesc.length * 5;
+      const totalY = Math.max(105, 90 + textHeight);
+      
+      doc.line(15, totalY, 195, totalY);
+      
+      // Total amount summary
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.text('Subtotal:', 150, totalY + 10, { align: 'right' });
+      doc.setFont('helvetica', 'bold');
+      doc.text(`EUR ${inv.amount.toFixed(2)}`, 190, totalY + 10, { align: 'right' });
+      
+      doc.setFont('helvetica', 'normal');
+      doc.text('VAT / TVA (0% Intracommunity):', 150, totalY + 16, { align: 'right' });
+      doc.setFont('helvetica', 'bold');
+      doc.text(`EUR 0.00`, 190, totalY + 16, { align: 'right' });
+      
+      doc.line(130, totalY + 22, 195, totalY + 22);
+      
+      // Dynamic variables for status and stamp
+      let stampBgColor = [240, 253, 250]; // teal-50
+      let stampBorderColor = [153, 246, 228]; // teal-200
+      let stampTextColor = [13, 148, 136]; // teal-600
+      let stampText = 'STATUS: CLEARANCE PAID';
+      let stampSubText = 'SEPA Direct Debit Settled';
+      let stampAuthCode = 'Auth Code: OK-SEPA-810';
+      let totalLabel = 'Total Paid:';
+      let labelColor = [7, 194, 227]; // #07C2E3
+
+      if (inv.status === 'pending') {
+        stampBgColor = [254, 243, 199]; // amber-50
+        stampBorderColor = [252, 211, 77]; // amber-200
+        stampTextColor = [217, 119, 6]; // amber-600
+        stampText = 'STATUS: OUTSTANDING PENDING';
+        stampSubText = 'Pending SEPA Settlement';
+        stampAuthCode = 'Due Date: Next 14 Days';
+        totalLabel = 'Total Pending:';
+        labelColor = [217, 119, 6]; // amber-600
+      } else if (inv.status === 'overdue') {
+        stampBgColor = [254, 226, 226]; // red-50
+        stampBorderColor = [252, 165, 165]; // red-200
+        stampTextColor = [220, 38, 38]; // red-600
+        stampText = 'STATUS: INVOICE OVERDUE';
+        stampSubText = 'Overdue Notice Issued';
+        stampAuthCode = 'Action Required: Immediate';
+        totalLabel = 'Total Outstanding:';
+        labelColor = [220, 38, 38]; // red-600
+      }
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(totalLabel, 150, totalY + 30, { align: 'right' });
+      doc.setTextColor(labelColor[0], labelColor[1], labelColor[2]);
+      doc.text(`EUR ${inv.amount.toFixed(2)}`, 190, totalY + 30, { align: 'right' });
+      
+      // Payment voucher details stamp
+      doc.setFillColor(stampBgColor[0], stampBgColor[1], stampBgColor[2]);
+      doc.rect(15, totalY + 5, 55, 25, 'F');
+      doc.setDrawColor(stampBorderColor[0], stampBorderColor[1], stampBorderColor[2]);
+      doc.rect(15, totalY + 5, 55, 25, 'S');
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(stampTextColor[0], stampTextColor[1], stampTextColor[2]);
+      doc.text(stampText, 20, totalY + 12);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(stampSubText, 20, totalY + 18);
+      doc.text(stampAuthCode, 20, totalY + 24);
+      
+      // Footnotes and disclaimers
+      doc.line(15, 250, 195, 250);
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184); // slate-400
+      doc.text('This subscription invoice has been automatically audited/processed by AI Commerce OS under European Commerce and Taxes Regulations.', 15, 256);
+      doc.text('If you have any questions, please contact billing@aurora-retail.eu. Thank you for your continued business.', 15, 261);
+      
+      // Save it
+      doc.save(`${inv.id}.pdf`);
+      
+      addLog('Billing Agent', '下载 PDF 发票', `成功生成并下载系统对公发票 [${inv.id}] 的 PDF 电子票据单（金额：€${inv.amount.toFixed(2)}）。`, 'success');
+    } catch (err: any) {
+      console.error(err);
+      addLog('Billing Agent', '生成 PDF 失败', `生成 PDF 时发生错误：${err.message}`, 'error');
+    }
+  };
+
+  const handlePrintSaaSInvoice = (inv: any) => {
+    addLog('Print Agent', '触发系统账单打印', `成功为系统账单 [${inv.id}] 下发本地无线/局域网云打印指令（账簿合规凭底证已传输完毕）。`, 'info');
+  };
+
+  const handleExportAllSaaSInvoicesPDF = () => {
+    try {
+      const doc = new jsPDF();
+      
+      doc.setFillColor(7, 194, 227); // #07C2E3
+      doc.rect(0, 0, 210, 15, 'F');
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(255, 255, 255);
+      doc.text('AI COMMERCE OS - MULTI-TENANT BILLING REGISTRY', 15, 10);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.setTextColor(15, 23, 42); 
+      doc.text('BILLING STATEMENT SUMMARY', 15, 30);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139); 
+      doc.text(`Tenant Name:`, 15, 38);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(51, 65, 85);
+      doc.text('Aurora S.R.L. (IT-RETAIL-02)', 45, 38);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Export Date:`, 15, 45);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(51, 65, 85);
+      doc.text(new Date().toISOString().slice(0, 10), 45, 45);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(51, 65, 85);
+      doc.text('Billing Authority:', 130, 30);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('AI Commerce OS Europe S.A.R.L.', 130, 36);
+      doc.text('Rue de la Paix, Paris, France', 130, 41);
+      
+      doc.setDrawColor(226, 232, 240); 
+      doc.setLineWidth(0.5);
+      doc.line(15, 58, 195, 58);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105); 
+      doc.text('Invoice Ref', 15, 63);
+      doc.text('Date', 45, 63);
+      doc.text('Description', 70, 63);
+      doc.text('Status', 160, 63, { align: 'center' });
+      doc.text('Amount (EUR)', 195, 63, { align: 'right' });
+      
+      doc.line(15, 67, 195, 67);
+      
+      let activeY = 73;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(51, 65, 85);
+      
+      saasInvoices.forEach((inv) => {
+        doc.setFont('helvetica', 'bold');
+        doc.text(inv.id, 15, activeY);
+        doc.setFont('helvetica', 'normal');
+        doc.text(inv.date, 45, activeY);
+        
+        const splitText = doc.splitTextToSize(inv.desc, 80);
+        doc.text(splitText, 70, activeY);
+        
+        doc.text(inv.status.toUpperCase(), 160, activeY, { align: 'center' });
+        doc.text(`EUR ${inv.amount.toFixed(2)}`, 195, activeY, { align: 'right' });
+        
+        const textLines = splitText.length;
+        activeY += textLines * 4.5 + 4;
+        doc.line(15, activeY - 2, 195, activeY - 2);
+      });
+      
+      const totalAmount = saasInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text('Cumulative Statement Value:', 130, activeY + 10, { align: 'right' });
+      doc.setTextColor(7, 194, 227); // #07C2E3
+      doc.text(`EUR ${totalAmount.toFixed(2)}`, 195, activeY + 10, { align: 'right' });
+      
+      doc.line(15, 250, 195, 250);
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184); 
+      doc.text('This is an official summary statement generated from your SaaS Management console.', 15, 256);
+      doc.text('All operations comply with European B2B digital services rendering acts.', 15, 261);
+      
+      doc.save(`Billing_Statement_${new Date().toISOString().slice(0, 10)}.pdf`);
+      addLog('Billing Agent', '合并导出系统账单总表', `成功为商户导出 ${saasInvoices.length} 笔财务周期内的系统账单流水汇总 PDF`, 'success');
+    } catch (err: any) {
+      console.error(err);
+      addLog('Billing Agent', '合并导出 PDF 失败', `生成汇总 PDF 时发生错误：${err.message}`, 'error');
+    }
+  };
+
+  // ==================== End Invoicing Integrated Handlers ====================
+
   // Filter orders based on sub-tab and search bar
   const displayOrders = useMemo(() => {
     let list = [...enrichedOrders];
@@ -358,44 +1009,41 @@ export default function OrderCenter({
         <div>
           <h2 className="text-lg font-bold tracking-tight text-slate-900 flex items-center gap-2">
             <ShoppingCart className="w-5 h-5 text-[#07C2E3]" />
-            <span>商家控制中心 · 订单管理中心</span>
+            <span>订单中心</span>
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            企业级多租户跨境交易看板。处理全球采购履约发货、风险风控因子把控及自动化售后。
-          </p>
         </div>
       </div>
 
       {/* Grid of four quick metrics cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left flex flex-col justify-between">
-          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">待履行发货 (待发货)</span>
+          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">待发货</span>
           <span className="text-xl font-black font-mono text-slate-800 mt-1">{stats.unshippedCount} 件</span>
-          <div className="mt-1 text-[9px] text-[#07C2E3] font-bold">已安排上游原厂备料排单</div>
+          <div className="mt-1 text-[9px] text-[#07C2E3] font-bold">原厂备料</div>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left flex flex-col justify-between">
-          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">售后待退款 (待退款)</span>
+          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">待退款</span>
           <span className={`text-xl font-black font-mono mt-1 ${stats.refundCount > 0 ? 'text-amber-600 animate-pulse' : 'text-slate-800'}`}>
             {stats.refundCount} 单
           </span>
-          <div className="mt-1 text-[9px] text-slate-400">待财务与物流双向终审</div>
+          <div className="mt-1 text-[9px] text-slate-400">待终审</div>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left flex flex-col justify-between">
-          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">高风险待审批 (风控)</span>
+          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">欺诈审批</span>
           <span className={`text-xl font-black font-mono mt-1 ${stats.riskCount > 0 ? 'text-rose-600 font-bold' : 'text-slate-800'}`}>
             {stats.riskCount} 笔
           </span>
-          <div className="mt-1 text-[9px] text-slate-400">AI 拦截恶意欺诈保障通道安全</div>
+          <div className="mt-1 text-[9px] text-rose-500 font-bold">AI 拦截</div>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left flex flex-col justify-between">
-          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">累计已完成单据 (已结)</span>
+          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">已结单据</span>
           <span className="text-xl font-black font-mono text-emerald-600 mt-1">
             {enrichedOrders.filter(o => o.shippingStatus === '已发货' || o.status === 'Refunded').length} 笔
           </span>
-          <div className="mt-1 text-[9px] text-emerald-600 font-bold">无纠纷完结率 100%</div>
+          <div className="mt-1 text-[9px] text-emerald-600 font-bold">成功率 100%</div>
         </div>
       </div>
 
@@ -446,6 +1094,17 @@ export default function OrderCenter({
             >
               退款审核销账 ({enrichedOrders.filter(o => o.status === 'Refund Requested' || o.status === 'Refunded').length})
             </button>
+            <button
+              onClick={() => { setActiveSubTab('billing'); setSelectedOrder(null); }}
+              className={`text-[10px] font-bold py-1 px-3 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                activeSubTab === 'billing' 
+                  ? 'bg-white text-[#07C2E3] shadow-sm font-black' 
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <FileCheck className="w-3.5 h-3.5" />
+              <span>财务账单 (Billing & Invoices)</span>
+            </button>
           </div>
 
           {/* Table operations search */}
@@ -478,6 +1137,15 @@ export default function OrderCenter({
               {sortOrder === 'asc' ? '↑' : '↓'}
             </button>
 
+            {/* Simulate Purchase Action */}
+            <button
+              onClick={handleCreateAutomatedSimulatedOrder}
+              className="bg-[#07C2E3] hover:bg-[#06B2D0] active:bg-[#059BBC] text-slate-950 px-2.5 py-1 h-6 rounded-lg text-[10px] font-black cursor-pointer transition-all flex items-center gap-1 shrink-0 border-none shadow-xs"
+              title="模拟商城买家线上付款新订单，可实时点击进行放大真实预览、发送和流转PDF"
+            >
+              <span>+ 模拟商城付款创单</span>
+            </button>
+
             {/* Export CSV Button */}
             <button
               onClick={handleExportOrders}
@@ -491,8 +1159,236 @@ export default function OrderCenter({
 
         </div>
 
-        {/* Master details dual panes layout or fallback */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 divide-y xl:divide-y-0 xl:divide-x divide-slate-150">
+        {activeSubTab === 'billing' ? (
+          <div className="p-5 space-y-4 animate-fadeIn text-left text-xs bg-white min-h-[460px]">
+            {/* Double header with Sub-tab toggle buttons to merge client order invoicing & SaaS platform billing registry */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-105 pb-4">
+              <div className="flex items-center gap-1.5 p-0.5 bg-slate-150 rounded-lg border border-slate-200/80 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setBillingSubTab('customer')}
+                  className={`text-[10px] font-bold py-1 px-3 rounded-md transition-all cursor-pointer ${
+                    billingSubTab === 'customer'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  顾客订单收款开票 (Order Invoices)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBillingSubTab('saas')}
+                  className={`text-[10px] font-bold py-1 px-3 rounded-md transition-all cursor-pointer ${
+                    billingSubTab === 'saas'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  系统SaaS订阅账单 (Platform Bills)
+                </button>
+              </div>
+
+              {billingSubTab === 'saas' && (
+                <button
+                  type="button"
+                  onClick={handleExportAllSaaSInvoicesPDF}
+                  className="bg-[#07C2E3] hover:bg-[#06B2D0] text-slate-950 py-1.5 px-3.5 rounded-lg text-[10px] font-black tracking-wide cursor-pointer transition-all flex items-center justify-center gap-1.5 border-none shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>导出账单总表 (Export Statement PDF)</span>
+                </button>
+              )}
+            </div>
+
+            {billingSubTab === 'customer' ? (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-xs font-black text-slate-850 uppercase tracking-widest flex items-center gap-2">
+                    <span className="w-1.5 h-3.5 bg-[#07C2E3] rounded-xs inline-block"></span>
+                    自动对公销账发票管理 (Auto-generated B2B Order Invoices)
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-1 font-sans">
+                    依据订单流转金额及欧盟增值税合规准则（标准 VAT 比率 20%），系统自动核准备备备备置开票草稿
+                  </p>
+                </div>
+
+                <div className="overflow-hidden border border-slate-200 rounded-xl bg-white shadow-2xs">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-150 text-[10px] text-slate-400 font-bold uppercase tracking-wider h-10 select-none">
+                        <th className="p-3 pl-4">发票编号</th>
+                        <th className="p-3">关联订单号</th>
+                        <th className="p-3">客户</th>
+                        <th className="p-3">开票时间</th>
+                        <th className="p-3 text-right">计算金额 (EUR)</th>
+                        <th className="p-3 text-center">发票状态</th>
+                        <th className="p-3 text-right pr-4">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-600 font-medium">
+                      {orders.map((o, idx) => {
+                        const isFinalized = invoicedOrderIds[o.id] || false;
+                        const isSent = sentInvoiceIds[o.id] || false;
+                        const mockInvoiceId = `INV-2026-FPR-${1892 + idx}`;
+
+                        return (
+                          <tr key={o.id} className="h-11 hover:bg-slate-50/20">
+                            <td className="p-3 pl-4 font-mono font-bold text-slate-850">
+                              {isFinalized ? mockInvoiceId : <span className="text-amber-500 font-sans text-[10px] font-bold">发票草稿 (Draft)</span>}
+                            </td>
+                            <td className="p-3 font-mono font-bold text-[#07C2E3]">{o.id}</td>
+                            <td className="p-3 text-slate-800 font-bold">{o.customerName}</td>
+                            <td className="p-3 font-mono text-slate-400">{o.createdAt}</td>
+                            <td className="p-3 text-right font-mono font-black text-slate-900">€{o.total.toFixed(2)}</td>
+                            <td className="p-3 text-center">
+                              {isFinalized ? (
+                                <span className={`text-[8.5px] font-bold px-1.5 py-0.5 rounded border ${
+                                  isSent 
+                                    ? 'bg-blue-50 border-blue-200 text-blue-600' 
+                                    : 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                                } uppercase font-sans`}>
+                                  {isSent ? '已发送客户' : '已核准生成'}
+                                </span>
+                              ) : (
+                                <span className="text-[8.5px] font-bold px-1.5 py-0.5 rounded border bg-amber-50 border-amber-200 text-amber-600 uppercase font-sans">
+                                  未审核
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 text-right pr-4">
+                              <div className="flex gap-1.5 justify-end">
+                                {!isFinalized ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleGenerateInvoice(o.id)}
+                                    className="bg-[#07C2E3] hover:bg-[#06B2D0] text-slate-950 text-[10px] font-black px-2.5 py-1 rounded cursor-pointer transition-all border-none"
+                                  >
+                                    生成发票
+                                  </button>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadCustomerPDF(o, idx)}
+                                      className="text-[#07C2E3] hover:text-[#06B2D0] hover:bg-slate-100 p-1 rounded cursor-pointer shrink-0 transition-colors border border-slate-200"
+                                      title="下载 PDF 发票"
+                                    >
+                                      <Download className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePrintAction(mockInvoiceId)}
+                                      className="text-slate-600 hover:text-slate-800 hover:bg-slate-100 p-1 rounded cursor-pointer shrink-0 transition-colors border border-slate-200"
+                                      title="快捷云打印"
+                                    >
+                                      <Printer className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSendInvoice(o)}
+                                      className="bg-slate-900 hover:bg-black text-[#07C2E3] text-[10px] font-semibold px-2 py-1 rounded cursor-pointer inline-flex items-center gap-1 shrink-0 border-none"
+                                    >
+                                      <Send className="w-2.5 h-2.5" />
+                                      <span>{isSent ? '重新投发' : '投发'}</span>
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {orders.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="text-center py-10 text-slate-405 font-bold font-sans">
+                            目前暂无客户发票单据。请在订单中心成交订单以自动产生草稿。
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-xs font-black text-slate-850 uppercase tracking-widest flex items-center gap-2">
+                    <span className="w-1.5 h-3.5 bg-[#07C2E3] rounded-xs inline-block"></span>
+                    企业财务对公发票登记簿 (SaaS Billing Ledger)
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-1 font-sans">
+                    管理系统计算特权、开发API人工智能算力扣划及欧洲多区库房关税合规发票细节
+                  </p>
+                </div>
+
+                <div className="overflow-hidden border border-slate-200 rounded-xl bg-white shadow-2xs">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-150 text-[10px] text-slate-400 font-bold uppercase tracking-wider h-10 select-none">
+                        <th className="p-3 pl-4">账 Ref</th>
+                        <th className="p-3">结算日期</th>
+                        <th className="p-3">算力明细说明</th>
+                        <th className="p-3 text-right">合计总额</th>
+                        <th className="p-3 text-center">发票状态</th>
+                        <th className="p-3 text-right pr-4">快捷操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-600 font-medium">
+                      {saasInvoices.map((inv) => (
+                        <tr key={inv.id} className="h-11 hover:bg-slate-50/20">
+                          <td className="p-3 pl-4 font-mono font-bold text-[#07C2E3]">{inv.id}</td>
+                          <td className="p-3 font-mono text-slate-500">{inv.date}</td>
+                          <td className="p-3 text-slate-750 font-sans max-w-[240px] truncate" title={inv.desc}>
+                            {inv.desc}
+                          </td>
+                          <td className="p-3 text-right font-mono font-black text-slate-950">€{inv.amount.toFixed(2)}</td>
+                          <td className="p-3 text-center">
+                            {inv.status === 'paid' && (
+                              <span className="text-[8.5px] font-bold px-1.5 py-0.5 rounded border bg-emerald-50 border-emerald-200 text-emerald-600 uppercase font-sans">
+                                Paid
+                              </span>
+                            )}
+                            {inv.status === 'pending' && (
+                              <span className="text-[8.5px] font-bold px-1.5 py-0.5 rounded border bg-amber-50 border-amber-200 text-amber-600 uppercase font-sans animate-pulse">
+                                Pending
+                              </span>
+                            )}
+                            {inv.status === 'overdue' && (
+                              <span className="text-[8.5px] font-bold px-1.5 py-0.5 rounded border bg-rose-50 border-rose-200 text-rose-600 uppercase font-sans">
+                                Overdue
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 text-right pr-4">
+                            <div className="flex gap-1.5 justify-end">
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadSaaSInvoicePDF(inv)}
+                                className="text-[#07C2E3] hover:text-[#06B2D0] hover:bg-slate-100 p-1 rounded cursor-pointer border border-slate-200 transition-colors"
+                                title="合并导出 PDF"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePrintSaaSInvoice(inv)}
+                                className="text-slate-600 hover:text-slate-800 hover:bg-slate-100 p-1 rounded cursor-pointer border border-slate-200 transition-colors"
+                                title="局域网云打印"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-3 divide-y xl:divide-y-0 xl:divide-x divide-slate-150">
           
           {/* Left / Middle: list of matching orders */}
           <div className="xl:col-span-2 text-xs overflow-x-auto">
@@ -561,8 +1457,12 @@ export default function OrderCenter({
                     return (
                       <tr 
                         key={order.id} 
-                        onClick={() => setSelectedOrder(order)}
-                        className={`hover:bg-slate-50/50 cursor-pointer transition-colors border-b border-slate-100 ${selectedOrder?.id === order.id ? 'bg-[#e6fafc]/20' : ''}`}
+                        onClick={() => {
+                          setSelectedOrder(order);
+                          setMagnifiedOrder(order);
+                        }}
+                        className={`hover:bg-slate-50/50 cursor-pointer transition-all border-b border-slate-100 ${selectedOrder?.id === order.id ? 'bg-[#e6fafc]/25 border-l-2 border-l-[#07C2E3]' : ''}`}
+                        title="点击直接放大打开预览此订单极其欧盟合规PDF发票与发货投单"
                       >
                         <td className="p-2.5 text-center font-bold font-mono text-slate-900">{order.id}</td>
                         <td className="p-2.5 font-bold text-slate-900">{order.customerName}</td>
@@ -600,15 +1500,48 @@ export default function OrderCenter({
                         </td>
                         <td className="p-2.5 text-right font-medium pr-3 space-x-1" onClick={(e) => e.stopPropagation()}>
                           <button
-                            onClick={() => setSelectedOrder(order)}
-                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 py-0.5 px-1.5 rounded text-[10px] font-bold cursor-pointer transition-all"
+                            onClick={() => {
+                              setSelectedOrder(order);
+                              setMagnifiedOrder(order);
+                            }}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 py-0.5 px-1.5 rounded text-[10px] font-bold cursor-pointer transition-all inline-block"
+                            title="放大预览并编辑发送此单据详情"
                           >
                             查看
                           </button>
+                          
+                          <button
+                            onClick={() => setMagnifiedOrder(order)}
+                            className="bg-cyan-50 hover:bg-cyan-100 text-[#07C2E3] py-0.5 px-1.5 rounded text-[10px] font-bold cursor-pointer transition-all inline-flex items-center gap-0.5 border border-cyan-100"
+                            title="放大预览此订单"
+                          >
+                            <Maximize2 className="w-2.5 h-2.5" />
+                            <span>放大</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleSendOrder(order)}
+                            className="bg-blue-50 hover:bg-blue-100 text-blue-600 py-0.5 px-1.5 rounded text-[10px] font-bold cursor-pointer transition-all inline-flex items-center gap-0.5 border border-blue-100"
+                            title="一键直接核发并发送 PDF 账单给买家"
+                          >
+                            <Send className="w-2.5 h-2.5" />
+                            <span>发送</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleDownloadCustomerPDF(order, orders.indexOf(order))}
+                            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 py-0.5 px-1.5 rounded text-[10px] font-bold cursor-pointer transition-all inline-flex items-center gap-0.5 border border-emerald-100"
+                            title="生成并下载欧盟合规 B2B 款额 PDF 票据"
+                          >
+                            <Download className="w-2.5 h-2.5" />
+                            <span>PDF</span>
+                          </button>
+
                           {order.paymentStatus === '已支付' && order.shippingStatus === '待发货' && order.status !== 'Refund Requested' && (
                             <button
                               onClick={() => setShowDispatchModal(order)}
-                              className="bg-[#07C2E3] hover:bg-[#06B2D0] text-white py-0.5 px-1.5 h-5 rounded font-bold text-[10px] transition-all cursor-pointer whitespace-nowrap inline-block"
+                              className="bg-[#07C2E3] hover:bg-[#06B2D0] text-white py-0.5 px-1.5 rounded font-bold text-[10px] transition-all cursor-pointer whitespace-nowrap inline-block border-none"
+                              title="执行核定派发物流出库单"
                             >
                               发货
                             </button>
@@ -616,7 +1549,7 @@ export default function OrderCenter({
                           {order.status === 'Refund Requested' && (
                             <button
                               onClick={() => setShowRefundModal(order)}
-                              className="bg-rose-500 hover:bg-rose-600 text-white py-0.5 px-1.5 h-5 rounded font-bold text-[10px] transition-all cursor-pointer whitespace-nowrap inline-block animate-pulse"
+                              className="bg-rose-500 hover:bg-rose-600 text-white py-0.5 px-1.5 rounded font-bold text-[10px] transition-all cursor-pointer whitespace-nowrap inline-block animate-pulse border-none"
                             >
                               退款审核
                             </button>
@@ -624,9 +1557,9 @@ export default function OrderCenter({
                           {order.riskScore >= 60 && (
                             <button
                               onClick={() => setShowRiskModal(order)}
-                              className="bg-amber-600 hover:bg-amber-700 text-white py-0.5 px-1.5 h-5 rounded font-bold text-[10px] transition-all cursor-pointer whitespace-nowrap inline-block"
+                              className="bg-amber-600 hover:bg-amber-700 text-white py-0.5 px-1.5 rounded font-bold text-[10px] transition-all cursor-pointer whitespace-nowrap inline-block border-none"
                             >
-                              人工审核
+                              安全核验
                             </button>
                           )}
                         </td>
@@ -867,13 +1800,210 @@ export default function OrderCenter({
               <div className="h-full flex flex-col items-center justify-center text-center p-8 text-slate-400 space-y-2 select-none">
                 <FileText className="w-8 h-8 text-slate-350" />
                 <span className="font-bold text-xs">暂无单据选中</span>
-                <p className="text-[10px] max-w-[200px]">单击左侧列表中的行，即可查看对应的收件资质、配货规格明细和实时跨境物流路线轨迹。</p>
+                <p className="text-[10px] text-slate-400 font-mono">SELECT_ORDER</p>
               </div>
             )}
           </div>
 
         </div>
+        )}
       </div>
+
+      {/* Magnified Order Modal Preview */}
+      {magnifiedOrder && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn overflow-y-auto">
+          <div className="bg-white border border-slate-200/80 rounded-2xl max-w-2xl w-full shadow-2xl relative flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50 rounded-t-2xl">
+              <div className="text-left">
+                <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">
+                  订单高级放大交互式预览 / Interactive Order Magnified Console
+                </span>
+                <span className="text-base font-black text-slate-900 font-mono flex items-center gap-2">
+                  <Maximize2 className="w-4 h-4 text-[#07C2E3]" />
+                  <span>单据 AWB: #{magnifiedOrder.id}</span>
+                </span>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setMagnifiedOrder(null)}
+                className="text-slate-400 hover:text-slate-600 hover:bg-slate-200 p-1.5 rounded-lg transition-colors cursor-pointer border-none"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Scrollable Content Pane */}
+            <div className="p-6 space-y-6 overflow-y-auto text-left text-xs text-slate-600">
+              
+              {/* Row 1: States Summary blocks */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">支付状态</span>
+                  <span className="text-xs font-black text-slate-800 mt-1 block font-mono">{magnifiedOrder.paymentStatus}</span>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">运载配送</span>
+                  <span className="text-xs font-black text-slate-800 mt-1 block font-mono">{magnifiedOrder.shippingStatus}</span>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">成交时间</span>
+                  <span className="text-xs font-medium text-slate-800 mt-1 block font-mono">{magnifiedOrder.createdAt}</span>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">风控评级</span>
+                  <span className={`text-xs font-black mt-1 block ${
+                    magnifiedOrder.riskScore >= 60 ? 'text-rose-600' : magnifiedOrder.riskScore >= 30 ? 'text-amber-600' : 'text-emerald-600'
+                  }`}>
+                    {magnifiedOrder.riskScore}% ({magnifiedOrder.riskScore >= 60 ? '高风险' : magnifiedOrder.riskScore >= 30 ? '中风险' : '可信件'})
+                  </span>
+                </div>
+              </div>
+
+              {/* Row 2: Customer Delivery Identity block */}
+              <div className="bg-slate-50/60 p-4 rounded-xl border border-slate-150 space-y-3.5">
+                <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider border-b border-slate-200/60 pb-1.5">
+                  国际买家清结算合规信息 (Customer Identity Summary)
+                </span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-slate-500 font-bold">
+                      <FileCheck className="w-3.5 h-3.5 text-[#07C2E3]" />
+                      <span>法定买方主体:</span>
+                    </div>
+                    <p className="font-bold text-slate-900 font-sans text-xs">{magnifiedOrder.customerName}</p>
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-slate-500 font-bold">
+                      <Mail className="w-3.5 h-3.5 text-[#07C2E3]" />
+                      <span>SMTP 邮箱:</span>
+                    </div>
+                    <p className="font-mono text-slate-800 text-xs break-all">{magnifiedOrder.contact}</p>
+                  </div>
+
+                  <div className="space-y-1.5 md:col-span-2">
+                    <div className="flex items-center gap-1.5 text-slate-500 font-bold">
+                      <MapPin className="w-3.5 h-3.5 text-[#07C2E3]" />
+                      <span>欧盟VAT申领及签收递送地址:</span>
+                    </div>
+                    <p className="font-sans text-slate-800 text-xs bg-white p-2.5 rounded border border-slate-100 leading-relaxed font-semibold">
+                      {magnifiedOrder.shippingAddress}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 3: Items list table */}
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider mb-2">
+                  明细清单 / Line Items Ledger
+                </span>
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider h-9 select-none">
+                        <th className="p-3 pl-4">商品条码 SKU</th>
+                        <th className="p-3">名称</th>
+                        <th className="p-3 text-right">单价 Price</th>
+                        <th className="p-3 text-center">数量 Qty</th>
+                        <th className="p-3 text-right pr-4">小计 Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-600 font-semibold bg-white">
+                      {magnifiedOrder.items.map((it, idx) => (
+                        <tr key={idx} className="h-10 hover:bg-slate-50/20">
+                          <td className="p-3 pl-4 font-mono font-bold text-[#07C2E3]">{it.sku}</td>
+                          <td className="p-3 text-slate-800 font-medium">{it.name}</td>
+                          <td className="p-3 text-right font-mono text-slate-500">${it.price.toFixed(2)}</td>
+                          <td className="p-3 text-center font-mono">{it.qty}</td>
+                          <td className="p-3 text-right pr-4 font-mono font-black text-slate-900">${(it.price * it.qty).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-50/30 font-black text-slate-905 h-11">
+                        <td colSpan={3} className="p-3 pl-4"></td>
+                        <td className="p-3 text-center text-slate-400 font-medium font-mono uppercase tracking-wider text-[9px]">
+                          应付账款 (EUR/USD)
+                        </td>
+                        <td className="p-3 text-right pr-4 font-mono text-sm text-[#07C2E3]">
+                          ${magnifiedOrder.total.toFixed(2)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Logistics Timeline component */}
+              <div className="bg-slate-50/20 border border-slate-150 p-4 rounded-xl space-y-3">
+                <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-[#07C2E3]" />
+                  <span>欧盟多式联运实况记录 (Transit Audit Timeline)</span>
+                </span>
+                <div className="space-y-3 max-h-40 overflow-y-auto pr-1">
+                  {magnifiedOrder.logisticsTimeline.map((evt, idx) => (
+                    <div key={idx} className="flex gap-2.5 items-start text-[11px] border-b border-slate-50 pb-2 last:border-none">
+                      <div className="pt-1 select-none">
+                        <span className="w-1.5 h-1.5 bg-[#07C2E3] rounded-full inline-block ring-4 ring-cyan-50"></span>
+                      </div>
+                      <div className="flex-1 space-y-0.5">
+                        <div className="flex items-center justify-between font-bold text-slate-800">
+                          <span>{evt.status}</span>
+                          <span className="font-mono text-[9px] text-slate-400 font-normal">{evt.time}</span>
+                        </div>
+                        <p className="text-slate-550 text-[10px] leading-relaxed">{evt.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Unified actions footer */}
+            <div className="p-4 border-t border-slate-100 flex flex-wrap justify-between items-center gap-3 bg-slate-50 rounded-b-2xl">
+              <span className="text-[10px] text-slate-404 font-medium">
+                账本签署：AI Commerce OS • 欧盟财务对公合规发票已核准
+              </span>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadCustomerPDF(magnifiedOrder, orders.indexOf(magnifiedOrder))}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-1.5 px-3.5 rounded-xl cursor-pointer transition-all flex items-center gap-1 border-none shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>下载 PDF 账单</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendOrder(magnifiedOrder)}
+                  className="bg-slate-900 hover:bg-black text-[#07C2E3] font-black text-xs py-1.5 px-3.5 rounded-xl cursor-pointer transition-all flex items-center gap-1 border-none shadow-sm"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>发送给买家</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handlePrintAction(`INV-2026-FPR-${1892 + orders.indexOf(magnifiedOrder)}`);
+                  }}
+                  className="bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs py-1.5 px-3 rounded-xl cursor-pointer transition-all flex items-center gap-1.5 border border-slate-200"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>无线云打印</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMagnifiedOrder(null)}
+                  className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs py-1.5 px-4 rounded-xl cursor-pointer transition-all border-none"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Manual Fulfillment Modal dialog */}
       {showDispatchModal && (

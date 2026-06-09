@@ -116,6 +116,14 @@ export default function ProductCenter({ products, selectedIndustry, addLog, onUp
   // Modals controller states
   const [showProductModal, setShowProductModal] = useState<'create' | 'edit' | null>(null);
   const [editingProduct, setEditingProduct] = useState<Partial<ProductItem>>({});
+
+  // Track active productId in context
+  React.useEffect(() => {
+    const activeId = editingProduct?.id || selectedProductIds[0] || (products[0]?.id || undefined);
+    if (typeof window !== 'undefined' && window.AIContextTracker) {
+      window.AIContextTracker.setProductId(activeId);
+    }
+  }, [editingProduct?.id, selectedProductIds, products]);
   const [showProcurementModal, setShowProcurementModal] = useState(false);
   const [isBulkProcurement, setIsBulkProcurement] = useState(false);
   const [newPO, setNewPO] = useState({
@@ -482,11 +490,8 @@ export default function ProductCenter({ products, selectedIndustry, addLog, onUp
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <h2 className="text-lg font-bold tracking-tight text-slate-900">
-            商品集成控制中心
+            商品中心
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            定义销售大表的底层 SKU 数据库。支持品类建模、品牌资产维护以及工厂采购资金交存闭环。
-          </p>
         </div>
         
         {/* 三个一级子功能页签 */}
@@ -592,7 +597,6 @@ export default function ProductCenter({ products, selectedIndustry, addLog, onUp
           <div className="px-5 py-4 border-b border-slate-100 flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-slate-50/40">
             <div>
               <h3 className="font-bold text-slate-800 text-sm">库存商品一览</h3>
-              <p className="text-[10px] text-slate-500 mt-0.5">支持按品牌、分类快速定位。支持批量一键补货以及直接数据编辑。</p>
             </div>
             
             {/* 过滤器及高级操作 */}
@@ -808,7 +812,6 @@ export default function ProductCenter({ products, selectedIndustry, addLog, onUp
                 <Layers className="w-4 h-4 text-[#07C2E3]" />
                 <span>分类管理类目树</span>
               </h3>
-              <p className="text-[10px] text-slate-400 mt-0.5">注册自定义的前台零售大类，定义业务报表切片。</p>
             </div>
 
             {/* 新增分类表单 */}
@@ -862,7 +865,6 @@ export default function ProductCenter({ products, selectedIndustry, addLog, onUp
                 <Award className="w-4 h-4 text-[#07C2E3]" />
                 <span>品牌管理</span>
               </h3>
-              <p className="text-[10px] text-slate-400 mt-0.5">维护产品品牌分类属性，用于多品牌统筹管理与分析。</p>
             </div>
 
             {/* 新增品牌表单 */}
@@ -942,7 +944,6 @@ export default function ProductCenter({ products, selectedIndustry, addLog, onUp
             <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/40">
               <div>
                 <h3 className="font-bold text-slate-800 text-sm">工厂采购流水日志</h3>
-                <p className="text-[10px] text-slate-500 mt-0.5">真实挂载向上游原料与制造代工厂付款凭证。履约支付成功将直接划拨物理库存。</p>
               </div>
               
               <button

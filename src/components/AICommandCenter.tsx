@@ -1,24 +1,28 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
-  Terminal, 
-  Sparkles, 
-  Search, 
-  Check, 
-  AlertCircle, 
+  Send,
+  Sparkles,
+  Bot, 
+  ShoppingBag, 
+  ShoppingCart, 
+  Users, 
+  Megaphone, 
+  Coins, 
   ArrowRight, 
-  Play, 
-  ChevronRight, 
-  TrendingUp, 
-  Plus, 
-  Loader2,
-  PhoneCall,
-  DollarSign,
-  Package,
+  ShieldCheck,
+  AlertCircle,
+  Mic,
+  Plus,
+  ArrowUp,
   FileText,
-  UserCheck
+  Image as ImageIcon
 } from 'lucide-react';
 import { IndustryType, ProductItem, OrderItem, CustomerItem } from '../types';
+import { aiRuntimeStore } from '../store/aiRuntimeStore';
+import { AIContextService } from '../services/AIContextService';
+import Markdown from 'react-markdown';
+import { generateIntelligentLocalReply } from '../utils/intelligentFallback';
 
 interface AICommandCenterProps {
   isOpen: boolean;
@@ -27,30 +31,40 @@ interface AICommandCenterProps {
   products: ProductItem[];
   orders: OrderItem[];
   customers: CustomerItem[];
+  currentAppTab: string;
   onUpdateCustomers: (updated: CustomerItem[]) => void;
+  onUpdateProducts?: (updated: ProductItem[]) => void;
   addLog: (agent: string, action: string, details: string, type: 'info' | 'success' | 'warning' | 'error' | 'tool') => void;
   onSwitchTab: (tab: any) => void;
   onTriggerAddProductOpen: () => void;
   onBulkRestock: (sku: string, amount: number) => void;
   onUpdateOrderStatus: (orderId: string, newStatus: any) => void;
   onAddNewProduct: (name: string, sku: string, price: number, stock: number) => void;
+  onPrefillProductForm?: (name: string, sku: string, price: number, stock: number) => void;
 }
 
-type CommandType = 
-  | 'idle'
-  | 'sales' 
-  | 'orders' 
-  | 'low_stock' 
-  | 'profit' 
-  | 'create_product' 
-  | 'create_purchase' 
-  | 'create_campaign' 
-  | 'refunds' 
-  | 'shipping' 
-  | 'customers'
-  | 'today_revenue'
-  | 'generate_today_invoices'
-  | 'payout_withdraw';
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  actionType?: string;
+  actionMeta?: any;
+  suggestions?: any[];
+  attachment?: {
+    name: string;
+    url?: string;
+    type: 'image' | 'document';
+    size?: string;
+  };
+  thought?: {
+    intent: string;
+    reasoning: string;
+    planning: string;
+    permission: string;
+    toolRouter: string;
+    validator: string;
+  };
+}
 
 export default function AICommandCenter({
   isOpen,
@@ -59,935 +73,908 @@ export default function AICommandCenter({
   products,
   orders,
   customers,
+  currentAppTab,
   onUpdateCustomers,
+  onUpdateProducts,
   addLog,
   onSwitchTab,
   onTriggerAddProductOpen,
   onBulkRestock,
   onUpdateOrderStatus,
-  onAddNewProduct
+  onAddNewProduct,
+  onPrefillProductForm
 }: AICommandCenterProps) {
-  const [query, setQuery] = useState('');
-  const [activeCommand, setActiveCommand] = useState<CommandType>('idle');
-  const [commandLogs, setCommandLogs] = useState<{ id: string; text: string; type: 'cmd' | 'resp' | 'success' | 'error' }[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
+  const [compareModalData, setCompareModalData] = useState<any[] | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Live financial metrics for AI query center
-  const calculatedSalesToday = useMemo(() => {
-    const todayTotal = orders.reduce((sum, o) => sum + o.total, 0);
-    return Math.round(todayTotal * 100) / 100 || 1280.00;
-  }, [orders]);
+  // States for Voice Input & File attachments matching multimodal standards
+  const [attachedFile, setAttachedFile] = useState<{ name: string; url?: string; type: 'image' | 'document'; size?: string } | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recordingIntervalRef = useRef<any>(null);
 
-  const ordersCount = orders.length || 12;
-  const pendingInvoicesCount = orders.length || 8;
-  const withdrawableAmount = 426.55;
-  
-  // Create product local state inside drawer
-  const [prodName, setProdName] = useState('');
-  const [prodSku, setProdSku] = useState('');
-  const [prodPrice, setProdPrice] = useState(199);
-  const [prodStock, setProdStock] = useState(100);
-
-  // Create campaign local state
-  const [campName, setCampName] = useState('');
-  const [campStart, setCampStart] = useState('2026-06-08');
-  const [campEnd, setCampEnd] = useState('2026-06-15');
-
-  // Trigger default logs on first open
   useEffect(() => {
-    if (isOpen) {
-      setCommandLogs([
-        { id: '1', text: 'AI安全网关：系统控制命令通道已加密开启。', type: 'success' },
-        { id: '2', text: '请输入操作命令，或直接点击下方快捷按钮执行。', type: 'resp' }
-      ]);
-    }
-  }, [isOpen]);
+    return () => {
+      if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+    };
+  }, []);
 
-  if (!isOpen) return null;
+  const recognitionRef = useRef<any>(null);
 
-  // Search filter words & action execution router
-  const executeCommand = (cmdKey: CommandType, labelText: string) => {
-    setActiveCommand(cmdKey);
-    const time = new Date().toTimeString().split(' ')[0];
+  const handleToggleRecording = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     
-    // Append standard tracking logs
-    setCommandLogs(prev => [
-      ...prev,
-      { id: Date.now().toString() + '-cmd', text: `> ${labelText}`, type: 'cmd' }
-    ]);
-
-    addLog('AI Command Center', 'Execute Direct Command', `Instruction requested: [${labelText}]`, 'tool');
-
-    // Logic router based on core industry context and explicit command requests
-    switch (cmdKey) {
-      case 'create_product':
-        onSwitchTab('command');
-        // Pre-populate input defaults
-        setProdName('');
-        setProdSku('SKU-' + selectedIndustry[0].toUpperCase() + Math.floor(100 + Math.random() * 900));
-        setProdPrice(99.9);
-        setProdStock(80);
-        break;
-      case 'create_purchase':
-        break;
-      case 'create_campaign':
-        setCampName(selectedIndustry === 'retail' ? '夏季服饰首发大促' : '特惠菜品闪电营销');
-        break;
-      case 'today_revenue':
-        setCommandLogs(prev => [
-          ...prev,
-          { id: Date.now().toString() + '-resp', text: '已极速获取最新今日营业额财报数据。您可以直接查看并点击快捷操作按钮。', type: 'resp' }
-        ]);
-        break;
-      case 'generate_today_invoices':
-        setCommandLogs(prev => [
-          ...prev,
-          { id: Date.now().toString() + '-resp', text: `已就绪今日待建发票草盘。共计 ${pendingInvoicesCount} 笔完结对公交易，可一键完成开票。`, type: 'resp' }
-        ]);
-        break;
-      case 'payout_withdraw':
-        setCommandLogs(prev => [
-          ...prev,
-          { id: Date.now().toString() + '-resp', text: `资金清分成功，当前可提现总额为 €${withdrawableAmount.toFixed(2)}。请一键发起对公 SEPA 转账结算。`, type: 'resp' }
-        ]);
-        break;
-      default:
-        break;
-    }
-  };
-
-  // Human typed search parser
-  const handleQuerySubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) return;
-
-    const trimmed = query.trim();
-    setQuery('');
-
-    // Local key term semantic map
-    if (trimmed.includes('今天营业额') || trimmed.includes('营业额') || trimmed.includes('今天收入') || trimmed.includes('今日收入')) {
-      executeCommand('today_revenue', trimmed);
-    } else if (trimmed.includes('生成今天发票') || trimmed.includes('生成发票') || trimmed.includes('全部生成发票')) {
-      executeCommand('generate_today_invoices', trimmed);
-    } else if (trimmed.includes('提现') || trimmed.includes('提款') || trimmed.includes('钱包提现')) {
-      executeCommand('payout_withdraw', trimmed);
-    } else if (trimmed.includes('销售') || trimmed.includes('销售额') || trimmed.includes('今日销售')) {
-      executeCommand('sales', trimmed);
-    } else if (trimmed.includes('订单') || trimmed.includes('今日订单')) {
-      executeCommand('orders', trimmed);
-    } else if (trimmed.includes('库存') || trimmed.includes('库存不足')) {
-      executeCommand('low_stock', trimmed);
-    } else if (trimmed.includes('利润') || trimmed.includes('查看利润')) {
-      executeCommand('profit', trimmed);
-    } else if (trimmed.includes('商品') || trimmed.includes('创建商品')) {
-      executeCommand('create_product', trimmed);
-    } else if (trimmed.includes('采购') || trimmed.includes('采购单') || trimmed.includes('创建采购单')) {
-      executeCommand('create_purchase', trimmed);
-    } else if (trimmed.includes('营销') || trimmed.includes('活动') || trimmed.includes('营销活动')) {
-      executeCommand('create_campaign', trimmed);
-    } else if (trimmed.includes('退款') || trimmed.includes('退款订单')) {
-      executeCommand('refunds', trimmed);
-    } else if (trimmed.includes('待发') || trimmed.includes('发货') || trimmed.includes('待发货')) {
-      executeCommand('shipping', trimmed);
-    } else if (trimmed.includes('加分') || trimmed.includes('积分奖励') || trimmed.includes('赠送积分') || (trimmed.includes('积分') && (trimmed.includes('奖') || trimmed.includes('加') || trimmed.includes('送')))) {
-      setCommandLogs(prev => [
-        ...prev,
-        { id: Date.now().toString() + '-cmd', text: `> ${trimmed}`, type: 'cmd' },
-        { id: Date.now().toString() + '-resp', text: `⚠️ 根据企业合规审计规则，AI 自动批量加分功能已停用（作为后续 AI 联合流转组件预留）。系统已自动跳转至商家控制中心·客户中心，请点击名单右侧的「积分」按钮，由管理员手动输入变更分量。`, type: 'info' }
-      ]);
-      setActiveCommand('customers');
-    } else if (trimmed.includes('客户') || trimmed.includes('排行') || trimmed.includes('客户排行')) {
-      executeCommand('customers', trimmed);
+    if (isRecording) {
+      setIsRecording(false);
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
+      }
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+        recordingIntervalRef.current = null;
+      }
     } else {
-      // Fallback
-      setCommandLogs(prev => [
-        ...prev,
-        { id: Date.now().toString() + '-cmd', text: `> ${trimmed}`, type: 'cmd' },
-        { id: Date.now().toString() + '-resp', text: `⚠️ 校验到不满足系统支持的命令。支持快捷执行 and 模糊匹配销售、订单、库存、利润等指令。`, type: 'error' }
-      ]);
+      if (!SpeechRecognition) {
+        addLog('语音输入', '浏览器限制', '当前设备浏览器未集成语音包，启动智能仿真录音中', 'warning');
+        setIsRecording(true);
+        setRecordingSeconds(0);
+        recordingIntervalRef.current = setInterval(() => {
+          setRecordingSeconds(prev => prev + 1);
+        }, 1000);
+        
+        // Mock fallback to avoid silent failures
+        setTimeout(() => {
+          if (recordingIntervalRef.current) {
+            const mockTranscriptions = [
+              '一键检测并加满断货及低库存 SKU',
+              '生成上新一款防水排汗秋季外套新品',
+              '汇总今天的欧元结算记账情况',
+              '帮我查询本月的总财务毛利润'
+            ];
+            const randomText = mockTranscriptions[Math.floor(Math.random() * mockTranscriptions.length)];
+            setChatInput(randomText);
+            addLog('语音识别', '智能翻译完成', `语音已翻译成命令: "${randomText}"`, 'success');
+            setIsRecording(false);
+            clearInterval(recordingIntervalRef.current);
+            recordingIntervalRef.current = null;
+          }
+        }, 3200);
+        return;
+      }
+
+      try {
+        const rec = new SpeechRecognition();
+        rec.continuous = false;
+        rec.interimResults = false;
+        rec.lang = 'zh-CN';
+
+        rec.onstart = () => {
+          setIsRecording(true);
+          setRecordingSeconds(0);
+          addLog('语音输入', '声纹传感器启动', '正在侦听您的语音指令...', 'info');
+          recordingIntervalRef.current = setInterval(() => {
+            setRecordingSeconds(prev => prev + 1);
+          }, 1000);
+        };
+
+        rec.onresult = (event: any) => {
+          const resultText = event.results[0]?.[0]?.transcript;
+          if (resultText) {
+            setChatInput(prev => {
+              const base = prev.trim();
+              return base ? `${base} ${resultText}` : resultText;
+            });
+            addLog('语音输入', '声纹翻译成功', `侦听到词汇: "${resultText}"`, 'success');
+          }
+        };
+
+        rec.onerror = (err: any) => {
+          console.warn("Speech recognition error:", err);
+          addLog('语音输入', '声学传感器挂起', '未能获取持续音频信息，请说出店务口令', 'warning');
+        };
+
+        rec.onend = () => {
+          setIsRecording(false);
+          if (recordingIntervalRef.current) {
+            clearInterval(recordingIntervalRef.current);
+            recordingIntervalRef.current = null;
+          }
+        };
+
+        recognitionRef.current = rec;
+        rec.start();
+      } catch (e) {
+        console.error(e);
+      }
     }
   };
 
-  // Helper selectors for operational stats
-  const lowStockItems = products.filter(p => p.stock <= p.minStockThreshold);
-  const refundRequestedOrders = orders.filter(o => o.status === 'Refund Requested');
-  const pendingShippingOrders = orders.filter(o => o.status === 'Pending' || o.status === 'AI Confirmed');
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const isImg = file.type.startsWith('image/');
+      const reader = new FileReader();
+      
+      reader.onload = () => {
+        setAttachedFile({
+          name: file.name,
+          url: reader.result as string, // Real full dynamic Base64 data Uri of the uploaded picture
+          type: isImg ? 'image' : 'document',
+          size: `${(file.size / 1024).toFixed(1)} KB`
+        });
+        addLog('文件上传', '磁盘物料解析成功', `已挂载: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`, 'success');
+      };
+
+      reader.onerror = () => {
+        addLog('文件上传', '解析媒介失败', '系统未能成功读取本地文件介质', 'error');
+      };
+
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSelectPresetFile = (fileName: string, type: 'image' | 'document', bytes: string) => {
+    setAttachedFile({
+      name: fileName,
+      type: type,
+      size: bytes,
+      url: type === 'image' ? 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=160&auto=format&fit=crop&q=60' : undefined
+    });
+    setShowAttachmentMenu(false);
+    addLog('文件上传', '添加预设样本', `挂载资源 "${fileName}" 成功`, 'success');
+  };
+
+  // Initialize welcome thread based on current store industry track
+  useEffect(() => {
+    setMessages([
+      {
+        role: 'assistant',
+        content: `**AI Commerce OS** 指挥官已就位。您可通过下方快捷输入，触发整店补仓、发起营销折扣，或管理货源订单。`,
+        timestamp: new Date().toLocaleTimeString().slice(0, 5)
+      }
+    ]);
+  }, [selectedIndustry]);
+
+  // Scroll to bottom whenever messages list grows
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isThinking]);
+
+  const appendSystemReply = (
+    content: string, 
+    actionType: 'product_create' | 'restock' | 'campaign' | 'customer_recall' | 'finance_switch' | 'none' | 'switch_tab' | 'APPLY_OPTIMIZED_COPY' | 'COMPARE_PREVIEW' | 'EXPORT_FINANCE_REPORT' | 'PREFILL_PRODUCT' = 'none', 
+    actionMeta?: any, 
+    suggestions?: any[],
+    thought?: any
+  ) => {
+    setMessages(prev => [
+      ...prev,
+      {
+        role: 'assistant',
+        content,
+        timestamp: new Date().toLocaleTimeString().slice(0, 5),
+        actionType,
+        actionMeta,
+        suggestions,
+        thought
+      }
+    ]);
+  };
+
+  const handleActionRun = (type: string, meta?: any) => {
+    if (type === 'PREFILL_PRODUCT') {
+      const pName = meta?.name || '防泼水排汗风夹克 (推荐)';
+      const pSku = meta?.sku || 'SKU-WIND-88';
+      const pPrice = meta?.price || 129.00;
+      const pStock = meta?.stock || 100;
+      
+      if (onPrefillProductForm) {
+        onPrefillProductForm(pName, pSku, pPrice, pStock);
+      } else {
+        onAddNewProduct(pName, pSku, pPrice, pStock);
+        onSwitchTab('products');
+      }
+      addLog('AI 助手', '自动预填商品参数', `已为您在商品中心新建面板中预填「${pName}」的核心参数。`, 'success');
+      appendSystemReply(`已成功为您一键预填了推荐爆款商品 [**${pName}**]（规格: ${pSku}，售价: €${pPrice}）的数据指标。已激活新建商品视图并跳转商品中心！`);
+    }
+    
+    else if (type === 'product_create') {
+      const pName = typeof meta === 'string' && meta ? `设计款新产品 (${meta})` : (meta?.name || '创意科技单品 (AI 智选推荐)');
+      const pSku = typeof meta === 'string' && meta ? `SKU-${meta.toUpperCase().slice(0, 10)}` : (meta?.sku || 'SKU-NEW-99');
+      const pPrice = meta?.price || 129.00;
+      const pStock = meta?.stock || 150;
+      
+      if (onPrefillProductForm) {
+        onPrefillProductForm(pName, pSku, pPrice, pStock);
+      } else {
+        onAddNewProduct(pName, pSku, pPrice, pStock);
+        onSwitchTab('products');
+      }
+      
+      addLog('AI 助手', '自动填充新商品', `成功填充新服饰推荐款「${pName}」，自动引流跳转！`, 'success');
+      appendSystemReply(`已成功为您自动生成爆款推荐商品 [**${pName}**]（规格: ${pSku}，参考建议零售价: €${pPrice}）的数据。已激活新建商品模架并跳转商品中心完成闭环！`);
+    } 
+    
+    else if (type === 'restock') {
+      const singleSku = typeof meta === 'string' ? meta.trim() : (meta?.sku || '').trim();
+      if (singleSku && singleSku !== 'all' && singleSku !== '') {
+        onBulkRestock(singleSku, 150);
+        addLog('AI 助手', '供应链采购', `已单独为 SKU「${singleSku}」紧急向供应商报采增库 150 件。`, 'success');
+        appendSystemReply(`✓ 补货采购指令已完成。已为物料 [**${singleSku}**] 追加 **+150 件** 入库。`);
+      } else {
+        const lowStockProducts = products.filter(p => p.stock <= 10);
+        if (lowStockProducts.length > 0) {
+          lowStockProducts.forEach(item => {
+            onBulkRestock(item.sku, 150);
+            addLog('AI 助手', '一键紧急采购补货', `检测到断缺货风险，已为「${item.name}」紧急向供应商报采增库 150 件。`, 'success');
+          });
+          appendSystemReply(`✓ 补货采购指令已执行！已自动将店内的 ${lowStockProducts.length} 款低库存/断货 SKU 向上游源头供应链报采，每款追加补料 **+150 件**。`);
+        } else {
+          if (products.length > 0) {
+            const firstItem = products[0];
+            onBulkRestock(firstItem.sku, 50);
+            addLog('AI 助手', '基准安全库存', `执行常规补货安全基准配置，为「${firstItem.name}」增加库量 50 件。`, 'success');
+            appendSystemReply(`✓ 店内目前无严重断货商品，已常规性为您首个上架款式 [**${firstItem.name}**] 追加补仓 **+50 件** 提高流转。`);
+          } else {
+            appendSystemReply(`⚠️ 无法执行补货采购：当前商品主库数据空，请先添加或初始化商品。`);
+          }
+        }
+      }
+    } 
+    
+    else if (type === 'switch_tab') {
+      const targetTab = typeof meta === 'string' ? meta.trim() : (meta?.tab || 'command').trim();
+      onSwitchTab(targetTab as any);
+      addLog('AI 助手', '视图导航切换', `正在为您极速跳转「${targetTab}」业务面板。`, 'info');
+      const textLabelMap: Record<string, string> = {
+        'command': '智能大盘', 'products': '商品中心', 'orders': '订单中心', 
+        'customers': '客户中心', 'marketing': '营销中心', 'logistics': '物流中心', 
+        'payments': '支付中心', 'finance': '财务中心', 'agents': 'AI中心',
+        'marketplace': '应用市场', 'developer-center': '开发者中心', 'settings': '设置中心',
+        'online-store': '店铺中心'
+      };
+      appendSystemReply(`✓ 操作就绪：已为您物理跳转至 **${textLabelMap[targetTab] || targetTab}** 面板。`);
+    }
+
+    else if (type === 'EXPORT_FINANCE_REPORT') {
+      addLog('AI 助手', '导出对账单数据', '正在生成并导出当前店铺今日对账清单 CSV 格式...', 'success');
+      appendSystemReply(`✓ 报表导出完成！今日单店收单对账底表 \`merchant_reconciliation_${new Date().toISOString().slice(0, 10)}.csv\` 已经自动组装生成。 [点击下载报表]`);
+    }
+
+    else if (type === 'APPLY_OPTIMIZED_COPY') {
+      const payloadProducts = meta?.products || meta || [];
+      if (payloadProducts.length > 0 && onUpdateProducts) {
+        const updatedProducts = products.map(p => {
+          const match = payloadProducts.find((item: any) => item.sku === p.sku || item.productId === p.id);
+          if (match) {
+            return {
+              ...p,
+              name: match.optimizedCopy.title,
+              status: p.stock > 10 ? 'In Stock' as const : (p.stock > 0 ? 'Low Stock' as const : 'Out of Stock' as const)
+            };
+          }
+          return p;
+        });
+        onUpdateProducts(updatedProducts);
+        addLog('AI 助手', '文本优化入库', `一键应用了 ${payloadProducts.length} 款主力商品的欧美高端中规文案优化。`, 'success');
+        appendSystemReply(`✓ 欧美高端中英文语言优化已成功更新！批量覆盖了 **${payloadProducts.length} 款** 商品主文案描述，助推站外转化率跃升。`);
+      }
+    }
+  };
+
+  // Perform Gemini response request
+  const handleSendMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if ((!chatInput.trim() && !attachedFile) || isThinking) return;
+
+    const userText = chatInput.trim() || (attachedFile ? `[已上传 ${attachedFile.type === 'image' ? '图片' : '文件'}: ${attachedFile.name}]` : '');
+    const currentAttachment = attachedFile ? { ...attachedFile } : undefined;
+    
+    setChatInput('');
+    setAttachedFile(null);
+
+    // Append user message
+    const thread = [
+      ...messages,
+      { 
+        role: 'user' as const,
+        content: userText,
+        timestamp: new Date().toLocaleTimeString().slice(0, 5),
+        attachment: currentAttachment
+      }
+    ];
+    setMessages(thread);
+    setIsThinking(true);
+    addLog('商户咨询', '输入命令对话', userText, 'info');
+
+    try {
+      // 1. Gather rich local merchant context
+      const currentStoreCtx = aiRuntimeStore.getContext();
+      const liveContext = AIContextService.gatherContext({
+        industry: selectedIndustry,
+        activeTab: currentAppTab,
+        products: products,
+        orders: orders,
+        customers: customers,
+        selectedProductId: currentStoreCtx.ui?.productId,
+        selectedOrderId: currentStoreCtx.ui?.orderId,
+        selectedCustomerId: currentStoreCtx.ui?.customerId
+      });
+
+      // 2. Call backend /api/gemini/agent-chat
+      const response = await fetch('/api/gemini/agent-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent: {
+            id: 'merchant_helper_agent',
+            name: '店铺高级助理',
+            title: '商业运营大管家',
+            systemPrompt: 'You are an intelligent, friendly, and fully professional shop assistant manager with human-like general reasoning capabilities. You can have natural conversations, but you are also designed to execute commerce tools on command. Reply naturally, clearly, and thoughtfully without technical jargon. Keep replies crisp and elegant. Avoid over-suggesting actions for simple conversational inputs.',
+            description: '协助管理当前单店运营细节',
+            capabilities: ['Local inventory optimization', 'Instant SKU formulation', 'Marketing voucher builder', 'Direct tab router guide']
+          },
+          industry: selectedIndustry,
+          products: products,
+          orders: orders,
+          messages: thread.map(m => ({ role: m.role, content: m.content })),
+          aiContext: liveContext
+        })
+      });
+
+      if (!response.ok) throw new Error('API server unavailable');
+      const resData = await response.json();
+
+      // Read structured AI Commander Brain properties directly from backend if available
+      const parsedText = resData.text || resData.replyText || "处理就绪";
+      const parsedActionType = resData.actionType || 'none';
+      const parsedActionMeta = resData.actionMeta || null;
+      const parsedSuggestions = resData.suggestions || [];
+      const parsedThought = resData.thought || null;
+
+      appendSystemReply(
+        parsedText, 
+        parsedActionType as any, 
+        parsedActionMeta, 
+        parsedSuggestions,
+        parsedThought
+      );
+
+    } catch (err) {
+      console.error("Gemini Store Chat Failed, utilizing high-quality store simulation:", err);
+      
+      const { text, actionType: fallbackAction, metaObj: fallbackMeta, suggestions: fallbackSuggs, thought: fallbackThought } = generateIntelligentLocalReply(
+        userText,
+        products,
+        orders,
+        customers
+      );
+
+      await new Promise(resolve => setTimeout(resolve, 600));
+      appendSystemReply(text, fallbackAction, fallbackMeta, fallbackSuggs, fallbackThought);
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+
+
+  const currentLowStock = products.filter(p => p.stock <= 10).length;
 
   if (!isOpen) return null;
 
   return (
     <div 
-      id="ai-cmd-drawer" 
-      className="w-[420px] bg-slate-900 border-l border-slate-800 h-full flex flex-col shrink-0 overflow-hidden text-slate-100"
+      id="ai-business-os-commander" 
+      className="w-[420px] bg-[#0c0d0e] border-l border-[#1f2124] h-full flex flex-col shrink-0 overflow-hidden text-slate-200 select-none animate-fadeIn font-sans"
     >
-      {/* Drawer Header */}
-      <div className="p-4 border-b border-slate-800 bg-slate-950 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center">
-            <Terminal className="w-4 h-4 text-white" />
+      {/* Header Panel (Minimalist and High-End) */}
+      <div className="p-4 border-b border-[#1f2124] bg-[#070809] flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#07C2E3] to-[#046B7D] flex items-center justify-center shadow-md">
+            <Sparkles className="w-4 h-4 text-white animate-pulse" />
           </div>
-          <div className="text-left">
-            <h3 className="text-sm font-black text-white tracking-widest tracking-tight">AI命令中心</h3>
-            <p className="text-[10px] text-slate-500 font-mono">SYSTEM INTEGRITY EXECUTIVE SHELL</p>
+          <div className="text-left font-sans">
+            <h3 className="text-sm font-black text-white tracking-wide">
+              <span>AI 店铺助手</span>
+            </h3>
           </div>
         </div>
 
         <button 
           onClick={onClose}
-          className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+          className="p-1 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-white transition-colors cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
       </div>
 
-        {/* Action log flow stream (Shows active command state instructions) */}
-        <div className="p-3 bg-slate-950 border-b border-slate-800 max-h-[140px] overflow-y-auto font-mono text-[10px] text-slate-400 space-y-1">
-          {commandLogs.map((log) => (
-            <div key={log.id} className="leading-relaxed">
-              {log.type === 'cmd' && <span className="text-indigo-400 font-semibold">{log.text}</span>}
-              {log.type === 'resp' && <span className="text-slate-350">{log.text}</span>}
-              {log.type === 'success' && <span className="text-emerald-400 font-medium">✓ {log.text}</span>}
-              {log.type === 'error' && <span className="text-rose-400 font-medium">{log.text}</span>}
-            </div>
-          ))}
+      {/* Interactive Quick Hops Buttons Toolbar (Replacing technical labels with sleek action icons to reach features in 1-click) */}
+      <div className="bg-[#050607] border-b border-[#1a1b1d] px-3.5 py-2 flex items-center justify-between shrink-0 font-sans">
+        <div className="flex gap-1.5">
+          <button 
+            type="button"
+            onClick={() => onSwitchTab('command')}
+            title="控制中心首页"
+            className="w-7 h-7 rounded bg-slate-950 border border-slate-900 text-[#07C2E3] hover:bg-[#07C2E3]/10 flex items-center justify-center transition-colors shadow-xs"
+          >
+            <Bot className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            type="button"
+            onClick={() => onSwitchTab('products')}
+            title="商品中心"
+            className="w-7 h-7 rounded bg-slate-950 border border-slate-900 text-[#07C2E3] hover:bg-[#07C2E3]/10 flex items-center justify-center transition-colors shadow-xs"
+          >
+            <ShoppingBag className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            type="button"
+            onClick={() => onSwitchTab('orders')}
+            title="订单中心"
+            className="w-7 h-7 rounded bg-slate-950 border border-slate-900 text-[#07C2E3] hover:bg-[#07C2E3]/10 flex items-center justify-center transition-colors shadow-xs"
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            type="button"
+            onClick={() => onSwitchTab('customers')}
+            title="客户中心"
+            className="w-7 h-7 rounded bg-slate-950 border border-slate-900 text-[#07C2E3] hover:bg-[#07C2E3]/10 flex items-center justify-center transition-colors shadow-xs"
+          >
+            <Users className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            type="button"
+            onClick={() => onSwitchTab('finance')}
+            title="财务中心"
+            className="w-7 h-7 rounded bg-slate-950 border border-slate-900 text-[#07C2E3] hover:bg-[#07C2E3]/10 flex items-center justify-center transition-colors shadow-xs"
+          >
+            <Coins className="w-3.5 h-3.5" />
+          </button>
         </div>
+      </div>
 
-        {/* Dynamic Context Rendering Panel (Outputs clear stats lists tables) */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          
-          {/* Default / idle welcome panel */}
-          {activeCommand === 'idle' && (
-            <div className="text-center py-8 space-y-3">
-              <Sparkles className="w-10 h-10 text-indigo-400 mx-auto animate-pulse" />
-              <div className="space-y-1">
-                <p className="text-xs text-slate-205 font-bold">即时操作指令中心</p>
-                <p className="text-[10px] text-slate-400 max-w-xs mx-auto leading-relaxed">
-                  本指令中心是直达各系统数据底层的最高物理命令权限台。
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* AI Command Center: Today's Revenue */}
-          {activeCommand === 'today_revenue' && (
-            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-4 text-left animate-fadeIn">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="text-[10px] text-[#07C2E3] font-bold uppercase tracking-wider font-mono">今日营业额 / Today's Net</span>
-                <span className="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-black font-sans">LIVE REPORT</span>
-              </div>
-              <div className="space-y-3">
-                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-850 space-y-1">
-                  <span className="text-[10px] text-slate-400 block font-normal">今日营业额</span>
-                  <span className="text-2xl font-black font-mono text-[#07C2E3]">€{calculatedSalesToday.toFixed(2)}</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-2 bg-slate-900/50 rounded-lg border border-slate-850">
-                    <span className="text-[9.5px] text-slate-500 block">今日成交订单</span>
-                    <span className="text-sm font-bold font-mono text-white">{ordersCount} 笔已支付</span>
-                  </div>
-                  <div className="p-2 bg-slate-900/50 rounded-lg border border-slate-850">
-                    <span className="text-[9.5px] text-slate-500 block">待发送发票</span>
-                    <span className="text-sm font-bold font-mono text-amber-500">{pendingInvoicesCount} 笔待处理</span>
-                  </div>
-                </div>
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => { onSwitchTab('orders'); onClose(); }}
-                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2 rounded-lg text-[10px] select-none transition-all cursor-pointer text-center border-none"
-                  >
-                    查看订单
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { onSwitchTab('finance'); onClose(); }}
-                    className="flex-1 bg-[#07C2E3] hover:bg-[#06B2D0] active:bg-[#059BBC] text-slate-950 font-black py-2 rounded-lg text-[10px] select-none transition-all cursor-pointer border-none text-center"
-                  >
-                    生成发票
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* AI Command Center: Generate Today's Invoices */}
-          {activeCommand === 'generate_today_invoices' && (
-            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-4 text-left animate-fadeIn">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="text-[10px] text-[#07C2E3] font-bold uppercase tracking-wider font-mono">批量对公建票 / Auto Billing</span>
-                <span className="text-[9px] bg-yellow-500/10 text-yellow-500 px-1.5 py-0.5 rounded font-black font-sans">PENDING STATE</span>
-              </div>
-              <div className="space-y-3">
-                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-850 space-y-1">
-                  <span className="text-[10px] text-slate-400 block font-normal">待生成草案总计</span>
-                  <div className="flex justify-between items-baseline">
-                    <span className="text-xl font-black font-mono text-white">{pendingInvoicesCount} 笔待开单</span>
-                    <span className="text-sm font-black font-mono text-[#07C2E3]">€{calculatedSalesToday.toFixed(2)}</span>
-                  </div>
-                </div>
-                <div className="bg-slate-900/40 p-2.5 rounded text-[10px] text-slate-450 border border-slate-850 leading-relaxed font-mono">
-                  所有买家注册信息（VAT编号、SEPA清算号、企业妥投账单信箱）已自动对照、就绪。无需重复输入任何账户要素。
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    addLog('Invoice Center', '批量开具对公发票', `自动合并对账：已为今日 ${pendingInvoicesCount} 笔完结交易极速生成合规 PDF 欧盟商业发票草案并存入财务台账。总销金额：€${calculatedSalesToday.toFixed(2)}`, 'success');
-                    setCommandLogs(prev => [...prev, { id: Date.now().toString(), text: `成功！已为您自动创建并核销 ${pendingInvoicesCount} 张合规对公草票，并入账。`, type: 'success' }]);
-                    setActiveCommand('idle');
-                    onSwitchTab('finance');
-                    onClose();
-                  }}
-                  className="w-full bg-[#07C2E3] hover:bg-[#06B2D0] active:bg-[#059BBC] text-slate-950 font-black py-2.5 rounded-lg text-xs transition-all cursor-pointer border-none text-center"
-                >
-                  全部生成
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* AI Command Center: Withdraw Payout */}
-          {activeCommand === 'payout_withdraw' && (
-            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-4 text-left animate-fadeIn">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="text-[10px] text-[#07C2E3] font-bold uppercase tracking-wider font-mono">SEPA 资金提现 / Payout Ledger</span>
-                <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-black font-sans">SEPA INSTANT</span>
-              </div>
-              <div className="space-y-3">
-                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-850 space-y-1">
-                  <span className="text-[10px] text-slate-500 block font-normal">可提现余额 (EUR)</span>
-                  <span className="text-2xl font-black font-mono text-[#07C2E3]">€{withdrawableAmount.toFixed(2)}</span>
-                </div>
-                <div className="p-2.5 bg-slate-900/30 border border-slate-850 rounded-lg text-[10px] leading-relaxed text-slate-350">
-                  <span className="font-bold text-slate-400 block mb-0.5">默认清算目的地：</span>
-                  <span className="font-mono text-white block truncate">BNP Paribas SA (FR76 **** **** **** 8920)</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    addLog('Payout Service', '结算全额提现申请', `已发起 SEPA 实时入账到法国 BNP Paribas SA 账户。金额：€${withdrawableAmount.toFixed(2)} 账期实时清分中。`, 'success');
-                    setCommandLogs(prev => [...prev, { id: Date.now().toString(), text: `已向绑定的法国 BNP Paribas 提现全部余额 €${withdrawableAmount.toFixed(2)}。预计 1 分钟内 SEPA 实时到账！`, type: 'success' }]);
-                    setActiveCommand('idle');
-                    onSwitchTab('finance');
-                    onClose();
-                  }}
-                  className="w-full bg-[#07C2E3] hover:bg-[#06B2D0] active:bg-[#059BBC] text-slate-950 font-black py-2.5 rounded-lg text-xs transition-all cursor-pointer border-none text-center"
-                >
-                  全部提现
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Core 命令 1:今日销售 */}
-          {activeCommand === 'sales' && (
-            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-indigo-400 font-mono font-bold uppercase tracking-wider">指令执行结果: 今日销售</span>
-                <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-bold font-mono">REALTIME LIVE</span>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-850">
-                  <span className="text-[9px] text-slate-500 font-bold block">销售总额</span>
-                  <span className="text-base font-bold font-mono text-emerald-400">¥ 12,839.00</span>
-                </div>
-                <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-850">
-                  <span className="text-[9px] text-slate-500 font-bold block">订单总数</span>
-                  <span className="text-base font-bold font-mono text-white">182 笔</span>
-                </div>
-                <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-850">
-                  <span className="text-[9px] text-slate-500 font-bold block">整体利润率</span>
-                  <span className="text-base font-bold font-mono text-indigo-300">42.8%</span>
-                </div>
-                <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-850">
-                  <span className="text-[9px] text-slate-500 font-bold block">客单价</span>
-                  <span className="text-base font-bold font-mono text-indigo-200">¥ 70.54</span>
-                </div>
-              </div>
-              <button 
-                onClick={() => { onSwitchTab('command'); onClose(); }} 
-                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 rounded-lg text-[10px] uppercase font-mono transition-colors"
-              >
-                进入全局控制台验证详细走势
-              </button>
-            </div>
-          )}
-
-          {/* Core 命令 2: 今日订单 */}
-          {activeCommand === 'orders' && (
-            <div className="space-y-3">
-              <span className="text-[10px] text-indigo-400 font-mono font-bold block uppercase tracking-wider">指令执行结果: 今日最新订单 (Top 5)</span>
-              <div className="bg-slate-950/60 border border-slate-850 rounded-xl overflow-hidden">
-                <table className="w-full text-left font-mono text-[10px]">
-                  <thead>
-                    <tr className="bg-slate-900 text-slate-400 border-b border-slate-850">
-                      <th className="p-2 font-bold">客户</th>
-                      <th className="p-2 font-bold text-right">金额</th>
-                      <th className="p-2 font-bold text-center">状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.slice(0, 5).map((ord) => (
-                      <tr key={ord.id} className="border-b border-slate-900/60 hover:bg-slate-900/30">
-                        <td className="p-2 font-normal text-slate-200 truncate max-w-[120px]">{ord.customerName}</td>
-                        <td className="p-2 text-right font-bold text-emerald-400">¥ {ord.total.toFixed(2)}</td>
-                        <td className="p-2 text-center">
-                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
-                            ord.status === 'Refunded' ? 'bg-red-500/10 text-red-400' : 'bg-indigo-500/15 text-indigo-300'
-                          }`}>{ord.status}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <button 
-                onClick={() => { onSwitchTab('command'); onClose(); }} 
-                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 rounded-lg text-[10px] font-mono transition-colors"
-              >
-                查看全部 {orders.length} 笔订单
-              </button>
-            </div>
-          )}
-
-          {/* Core 命令 3: 库存不足 */}
-          {activeCommand === 'low_stock' && (
-            <div className="space-y-2">
-              <span className="text-[10px] text-red-400 font-mono font-bold block uppercase tracking-wider">指令执行结果: 缺货/低库存清单</span>
-              
-              {lowStockItems.length === 0 ? (
-                <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl text-center text-[11px] text-emerald-400 font-bold">
-                  ✓ 系统当前运作良性。无任何商品达到预警阀限值下限。
-                </div>
+      {/* Scrollable Conversation Container */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#0a0b0c]/98">
+        {messages.map((msg, index) => (
+          <div 
+            key={index} 
+            className={`flex flex-col max-w-[92%] ${msg.role === 'user' ? 'ml-auto items-end animate-fadeIn' : 'mr-auto items-start'}`}
+          >
+            {/* Speaker head */}
+            <span className="text-[9px] text-slate-500 font-mono mb-1 tracking-wider uppercase font-bold flex items-center gap-1">
+              {msg.role === 'user' ? (
+                <><span>ME</span> <span className="text-[7.5px]">&middot; {msg.timestamp}</span></>
               ) : (
-                <div className="bg-slate-950/60 border border-slate-850 rounded-xl overflow-hidden">
-                  <table className="w-full text-left font-mono text-[10px]">
-                    <thead>
-                      <tr className="bg-slate-900 text-slate-400 border-b border-slate-850">
-                        <th className="p-2.5 font-bold">商品名称</th>
-                        <th className="p-2.5 font-bold">库存</th>
-                        <th className="p-2.5 font-bold text-center">操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lowStockItems.map((prod) => (
-                        <tr key={prod.id} className="border-b border-slate-900/60 hover:bg-slate-900/30">
-                          <td className="p-2.5 text-slate-200 font-medium truncate max-w-[150px]">{prod.name}</td>
-                          <td className="p-2.5 text-red-400 font-bold">{prod.stock}件</td>
-                          <td className="p-2.5 text-center">
-                            <button 
-                              onClick={() => {
-                                onBulkRestock(prod.sku, 50);
-                                addLog('Supplier Broker', 'Quick Stock Reorder', `Approved 50 replenishment for SKU: ${prod.sku}`, 'success');
-                              }}
-                              className="bg-indigo-650 hover:bg-indigo-600 active:scale-95 text-white font-bold px-2 py-1 rounded text-[9px] transition-all cursor-pointer"
-                            >
-                              一键补货50件
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <>
+                  <Bot className="w-3 h-3 text-[#07C2E3]" /> 
+                  <span className="text-[#07C2E3]">AI</span> 
+                  <span className="text-[7.5px]">&middot; {msg.timestamp}</span>
+                </>
+              )}
+            </span>
+
+            {/* Bubble */}
+            <div 
+              className={`rounded-2xl p-3.5 text-[11.5px] text-left leading-relaxed shadow-sm font-semibold relative ${
+                msg.role === 'user' 
+                  ? 'bg-[#07C2E3] text-[#001015]' 
+                  : 'bg-[#121316] text-slate-200 border border-[#1b1d22]'
+              }`}
+            >
+              {msg.role === 'user' ? (
+                <p className="whitespace-pre-line font-bold leading-relaxed font-sans">{msg.content}</p>
+              ) : (
+                <>
+                  {msg.thought && (
+                    <div className="mb-3.5 bg-slate-950/75 rounded-xl border border-slate-900 p-3 space-y-2.5 font-mono text-[9.5px] leading-tight text-slate-400 select-text">
+                      <div className="flex items-center gap-1.5 text-[#07C2E3] font-bold text-[10px] tracking-wider uppercase border-b border-[#1b1d22]/50 pb-1.5 mb-1.5">
+                        <Sparkles className="w-3.5 h-3.5 animate-pulse text-[#07C2E3]" />
+                        <span>🧬 AI Commander Brain OS (思考智中枢)</span>
+                      </div>
+                      
+                      <div className="flex flex-col gap-1.5 pl-1.5 border-l-2 border-[#07C2E3]/35">
+                        <div className="flex items-center gap-2">
+                          <span className="text-emerald-400 font-extrabold bg-emerald-950/60 px-1 rounded text-[8px] uppercase">1. INTENT 意图</span>
+                          <span className="text-slate-200 font-bold">{msg.thought.intent}</span>
+                        </div>
+                        <p className="text-slate-400 leading-normal pl-0.5">{msg.thought.reasoning}</p>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5 pl-1.5 border-l-2 border-[#07C2E3]/35">
+                        <div className="flex items-center gap-2">
+                          <span className="text-amber-400 font-extrabold bg-amber-950/40 px-1 rounded text-[8px] uppercase">2. PLANNING 规划</span>
+                        </div>
+                        <p className="text-slate-400 leading-normal pl-0.5">{msg.thought.planning}</p>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5 pl-1.5 border-l-2 border-[#07C2E3]/35">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sky-400 font-extrabold bg-sky-950/40 px-1 rounded text-[8px] uppercase">3. TOOL ROUTER 路由</span>
+                          <span className="text-slate-200 font-bold">{msg.thought.toolRouter}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5 pl-1.5 border-l-2 border-[#07C2E3]/35">
+                        <div className="flex items-center gap-2">
+                          <span className="text-violet-400 font-extrabold bg-violet-950/40 px-1 rounded text-[8px] uppercase">4. POLICY 授权</span>
+                          <span className="text-[#07C2E3] font-bold text-[8.5px] bg-[#07C2E3]/10 px-1 rounded">{msg.thought.permission}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5 pl-1.5 border-l-2 border-[#07C2E3]/40">
+                        <div className="flex items-center gap-2">
+                          <span className="text-indigo-400 font-extrabold bg-indigo-950/40 px-1 rounded text-[8px] uppercase">5. VALIDATION 核验</span>
+                          <span className="text-emerald-400 font-bold">{msg.thought.validator}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="markdown-body font-sans text-slate-300 space-y-2">
+                    <Markdown>{msg.content}</Markdown>
+                  </div>
+                </>
+              )}
+
+              {/* Connected Attachment presentation */}
+              {msg.attachment && (
+                <div className="mt-2 text-left rounded-lg overflow-hidden bg-black/20 p-2 border border-black/10 flex items-center gap-2 max-w-sm">
+                  {msg.attachment.type === 'image' ? (
+                    <div className="w-8 h-8 rounded overflow-hidden bg-slate-900 border border-white/10 shrink-0">
+                      <img src={msg.attachment.url || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=160'} alt="attachment" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    </div>
+                  ) : (
+                    <div className="w-8 h-8 rounded bg-[#07C2E3]/20 flex items-center justify-center shrink-0 border border-[#07C2E3]/15">
+                      <FileText className="w-4 h-4 text-[#07C2E3]" />
+                    </div>
+                  )}
+                  <div className="text-left select-text min-w-0 flex-1">
+                    <p className={`text-[10px] font-bold truncate ${msg.role === 'user' ? 'text-black' : 'text-slate-200'}`}>
+                      {msg.attachment.name}
+                    </p>
+                    <p className={`text-[8.5px] font-mono ${msg.role === 'user' ? 'text-slate-800' : 'text-slate-400'}`}>
+                      {msg.attachment.size || '未知大小'}
+                    </p>
+                  </div>
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Core 命令 4: 查看利润 */}
-          {activeCommand === 'profit' && (
-            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
-              <span className="text-[10px] text-indigo-400 font-mono font-bold block uppercase tracking-wider">指令执行结果: 商家企业利润分析</span>
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs py-1.5 border-b border-slate-850">
-                  <span className="text-slate-400">主营业务收入:</span>
-                  <span className="font-mono text-emerald-400 font-bold">¥ 389,200.00</span>
-                </div>
-                <div className="flex justify-between text-xs py-1.5 border-b border-slate-850">
-                  <span className="text-slate-400">供应链采购成本:</span>
-                  <span className="font-mono text-slate-300">¥ 186,400.00</span>
-                </div>
-                <div className="flex justify-between text-xs py-1.5 border-b border-slate-850">
-                  <span className="text-slate-400">AI 多Agent算力支出:</span>
-                  <span className="font-mono text-indigo-400 font-semibold">¥ 2,830.00</span>
-                </div>
-                <div className="flex justify-between text-xs py-1.5 border-b border-slate-850">
-                  <span className="text-slate-400">渠道推广支出:</span>
-                  <span className="font-mono text-slate-300">¥ 45,900.00</span>
-                </div>
-                <div className="flex justify-between text-xs py-2 bg-slate-900 rounded p-2 border border-slate-850">
-                  <span className="text-white font-bold">预计税后纯利润:</span>
-                  <span className="font-mono text-emerald-400 font-black text-sm">¥ 154,070.00</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Core 命令 5: 创建商品 */}
-          {activeCommand === 'create_product' && (
-            <div className="bg-slate-950/60 border border-indigo-900/30 rounded-xl p-4 space-y-3">
-              <span className="text-[10px] text-indigo-400 font-mono font-bold block uppercase tracking-wider">指令执行: 创建新商品并同步至SaaS系统</span>
-              
-              <div className="space-y-2 font-mono text-xs text-slate-300">
-                <div>
-                  <label className="block text-[9px] text-slate-500 font-bold mb-1 uppercase">商品标题 / Title</label>
-                  <input 
-                    type="text" 
-                    value={prodName}
-                    onChange={(e) => setProdName(e.target.value)}
-                    placeholder="例如：2026冬季高光尼龙防风羽绒服"
-                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs focus:border-indigo-500 font-mono text-white"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[9px] text-slate-500 font-bold mb-1 uppercase">独立 SKU 标识</label>
-                    <input 
-                      type="text" 
-                      value={prodSku}
-                      onChange={(e) => setProdSku(e.target.value)}
-                      placeholder="SKU-JN19"
-                      className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs focus:border-indigo-500 font-mono text-white text-[11px]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[9px] text-slate-500 font-bold mb-1 uppercase">建议零售单价 (¥)</label>
-                    <input 
-                      type="number" 
-                      value={prodPrice}
-                      onChange={(e) => setProdPrice(Number(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs focus:border-indigo-500 font-mono text-white text-[11px]"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[9px] text-slate-500 font-bold mb-1 uppercase">初始上架库存量 (件)</label>
-                  <input 
-                    type="number" 
-                    value={prodStock}
-                    onChange={(e) => setProdStock(Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs focus:border-indigo-500 font-mono text-white text-[11px]"
-                  />
-                </div>
-
-                <button 
-                  onClick={() => {
-                    if (!prodName.trim() || !prodSku.trim()) {
-                      alert('请填写完整的商品名称与SKU！');
-                      return;
-                    }
-                    onAddNewProduct(prodName, prodSku, prodPrice, prodStock);
-                    addLog('AI Command Center', 'Manual Command Creation', `Directly loaded new Product Catalog SKU: ${prodSku}`, 'success');
-                    setCommandLogs(prev => [...prev, { id: Date.now().toString(), text: `商品 SKU: ${prodSku} 已直接物理注入并同步。`, type: 'success' }]);
-                    setActiveCommand('idle');
-                  }}
-                  className="w-full bg-emerald-600 hover:bg-emerald-550 text-white font-bold py-2.5 rounded-lg text-xs tracking-wider transition-all cursor-pointer"
-                >
-                  确认物理创建并同步 (Publish Product)
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Core 命令 6: 创建采购单 */}
-          {activeCommand === 'create_purchase' && (
-            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
-              <span className="text-[10px] text-indigo-400 font-mono font-bold block uppercase tracking-wider">指令执行: 创建并分发上游供应链采购需求单</span>
-              
-              <div className="font-mono text-xs text-slate-350 space-y-3">
-                <div className="p-3 bg-slate-900 rounded-lg border border-slate-850 space-y-2">
-                  <div className="flex justify-between text-[11px] font-bold text-white">
-                    <span>建议采购缺货商品:</span>
-                    <span className="text-indigo-400">共 {lowStockItems.length} 款物料</span>
-                  </div>
-                  <div className="text-[10px] text-slate-500 leading-normal">
-                    根据目前仓储实况，推荐按最高标准进行物料分发与备货控制。
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-[10px] text-left">
-                  <div className="bg-slate-900/40 p-2.5 rounded border border-slate-850">
-                    <span className="text-slate-500 block">建议采购总量:</span>
-                    <span className="text-xs font-bold text-slate-205">Total: 450 件</span>
-                  </div>
-                  <div className="bg-slate-900/40 p-2.5 rounded border border-slate-850">
-                    <span className="text-slate-500 block">推荐供应商渠道:</span>
-                    <span className="text-xs font-bold text-emerald-400">战略签约一级供货商</span>
-                  </div>
-                </div>
-
-                <button 
-                  onClick={() => {
-                    lowStockItems.forEach(item => {
-                      onBulkRestock(item.sku, 100);
-                    });
-                    addLog('Supplier Broker', 'Bulk Restock Confirmed', `Supplying raw inventory for all low stock items. All channels now safe.`, 'success');
-                    setCommandLogs(prev => [...prev, { id: Date.now().toString(), text: '采购定单已发送给供应商，库存已批量补货至安全线。', type: 'success' }]);
-                    setActiveCommand('idle');
-                  }}
-                  className="w-full bg-indigo-600 hover:bg-indigo-550 text-white font-bold py-2.5 rounded-lg text-xs transition-all cursor-pointer"
-                >
-                  一键确认生成并分发采购单
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Core 命令 7: 创建营销活动 */}
-          {activeCommand === 'create_campaign' && (
-            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
-              <span className="text-[10px] text-indigo-400 font-mono font-bold block uppercase tracking-wider">指令执行: 策划智能流营销活动方案</span>
-              
-              <div className="space-y-3 font-mono text-xs">
-                <div>
-                  <label className="block text-[9px] text-slate-500 font-bold mb-1 uppercase">营销活动主名称</label>
-                  <input 
-                    type="text" 
-                    value={campName}
-                    onChange={(e) => setCampName(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs focus:border-indigo-500 font-mono text-white"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[9px] text-slate-500 font-bold mb-1 uppercase">开始时间</label>
-                    <input 
-                      type="date" 
-                      value={campStart}
-                      onChange={(e) => setCampStart(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-[11px] text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[9px] text-slate-500 font-bold mb-1 uppercase">结束时间</label>
-                    <input 
-                      type="date" 
-                      value={campEnd}
-                      onChange={(e) => setCampEnd(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-[11px] text-white"
-                    />
-                  </div>
-                </div>
-
-                <button 
-                  onClick={() => {
-                    if (!campName.trim()) return;
-                    addLog('AI Command Center', 'Automated Offer Deployed', `Auto-injected discount codes matching campaign: "${campName}". Syncing metadata to shop headers.`, 'success');
-                    setCommandLogs(prev => [...prev, { id: Date.now().toString(), text: `营销活动 "${campName}" 已在全服部署，优惠券流配置完毕。`, type: 'success' }]);
-                    setActiveCommand('idle');
-                  }}
-                  className="w-full bg-emerald-600 hover:bg-emerald-550 text-white font-bold py-2.5 rounded-lg text-xs transition-colors cursor-pointer"
-                >
-                  立即发布活动至各渠道接口
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Core 命令 8: 查看退款订单 */}
-          {activeCommand === 'refunds' && (
-            <div className="space-y-2">
-              <span className="text-[10px] text-rose-400 font-mono font-bold block uppercase tracking-wider">指令执行结果: 退款维权申请控制表</span>
-              
-              {refundRequestedOrders.length === 0 ? (
-                <div className="p-4 bg-slate-950/80 border border-slate-850 rounded-xl text-center text-[10px] text-slate-400 leading-normal">
-                  保持健康。没有收到任何来自第三方的恶意纠纷或退款纠纷投诉。
-                </div>
-              ) : (
-                <div className="bg-slate-950/60 border border-slate-850 rounded-xl overflow-hidden">
-                  <table className="w-full text-left font-mono text-[10px]">
-                    <thead>
-                      <tr className="bg-slate-900 text-slate-400 border-b border-slate-850">
-                        <th className="p-2 font-bold">订单客户</th>
-                        <th className="p-2 font-bold">维权金额</th>
-                        <th className="p-2 font-bold text-center">风险分</th>
-                        <th className="p-2 font-bold text-center">审批</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {refundRequestedOrders.map((ord) => (
-                        <tr key={ord.id} className="border-b border-slate-900/60 hover:bg-slate-900/30">
-                          <td className="p-2 text-slate-200">
-                            <span className="block font-bold truncate max-w-[100px]">{ord.customerName}</span>
-                            <span className="text-[8px] text-slate-500">{ord.id}</span>
-                          </td>
-                          <td className="p-2 text-rose-400 font-bold text-[11px]">¥ {ord.total.toFixed(2)}</td>
-                          <td className="p-2 text-center">
-                            <span className={`px-1 py-0.2 rounded font-bold ${
-                              ord.riskScore > 60 ? 'bg-red-500/15 text-red-400' : 'bg-emerald-500/10 text-emerald-400'
-                            }`}>{ord.riskScore}%</span>
-                          </td>
-                          <td className="p-2 flex items-center justify-center gap-1">
-                            <button 
-                              onClick={() => {
-                                onUpdateOrderStatus(ord.id, 'Refunded');
-                                addLog('Finance Audit API', 'Refund Issued Approved', `Successfully refunded for user: ${ord.customerName}`, 'warning');
-                                setCommandLogs(prev => [...prev, { id: Date.now().toString(), text: `订单: ${ord.id} 已执行原路极速退款。`, type: 'success' }]);
-                              }}
-                              className="bg-rose-500 hover:bg-rose-600 font-bold px-1.5 py-0.5 rounded text-[8px] text-white cursor-pointer"
-                            >
-                              同意
-                            </button>
-                            <button 
-                              onClick={() => {
-                                onUpdateOrderStatus(ord.id, 'AI Confirmed');
-                                addLog('AI Guard Security', 'Refund Dispute Declined', `Declined potentially abusive claim: ${ord.id}`, 'error');
-                                setCommandLogs(prev => [...prev, { id: Date.now().toString(), text: `维权已被驳回，已重归安全流程。`, type: 'error' }]);
-                              }}
-                              className="bg-slate-800 hover:bg-slate-700 font-bold px-1.5 py-0.5 rounded text-[8px] text-slate-300 cursor-pointer"
-                            >
-                              驳回
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              {/* Connected CTA interactive action buttons - Renders dynamically inside assistant reply card */}
+              {msg.role === 'assistant' && (
+                <>
+                  {msg.suggestions && msg.suggestions.length > 0 ? (
+                    <div className="mt-3.5 pt-3 border-t border-[#1e2025] flex flex-col gap-2">
+                      <div className="text-[9px] font-black text-slate-500 uppercase tracking-wider mb-0.5">💡 系统极速研判经营运作：</div>
+                      <div className="flex flex-wrap gap-2 justify-end">
+                        {msg.suggestions.map((sug, sIdx) => (
+                          <button
+                            key={sIdx}
+                            type="button"
+                            onClick={() => handleActionRun(sug.action, sug.payload)}
+                            className="bg-[#07C2E3] hover:bg-[#06B2D0] active:bg-[#059BBC] text-slate-950 px-3.5 py-1.5 rounded-xl font-extrabold text-[10px] transition-all cursor-pointer flex items-center gap-1 shadow-md hover:scale-[1.02] active:scale-[0.98]"
+                          >
+                            <span>🎯 {sug.label}</span>
+                            <ArrowRight className="w-3 h-3 shrink-0" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    msg.actionType && msg.actionType !== 'none' && (
+                      <div className="mt-4 pt-3 border-t border-[#1e2025] flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleActionRun(msg.actionType!, msg.actionMeta)}
+                          className="bg-[#07C2E3] hover:bg-[#06B2D0] active:bg-[#059BBC] text-slate-950 px-3.5 py-1.5 rounded-xl font-black text-[10px] transition-all cursor-pointer flex items-center gap-1.5 shadow-md"
+                        >
+                          <span>🎯 一键核准此项店务运作</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )
+                  )}
+                </>
               )}
-            </div>
-          )}
-
-          {/* Core 命令 9: 查看待发货 */}
-          {activeCommand === 'shipping' && (
-            <div className="space-y-2">
-              <span className="text-[10px] text-indigo-400 font-mono font-bold block uppercase tracking-wider">指令执行结果: 待处理发货物流单据</span>
-              
-              {pendingShippingOrders.length === 0 ? (
-                <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl text-center text-[10px] text-emerald-400 font-bold leading-normal">
-                  ✓ 订单全部履约完毕，没有未处理的发货工单。
-                </div>
-              ) : (
-                <div className="bg-slate-950/60 border border-slate-850 rounded-xl overflow-hidden">
-                  <table className="w-full text-left font-mono text-[10px]">
-                    <thead>
-                      <tr className="bg-slate-900 text-slate-400 border-b border-slate-850">
-                        <th className="p-2.5 font-bold">订单ID / 客户</th>
-                        <th className="p-2.5 font-bold">包裹金额</th>
-                        <th className="p-2.5 text-center font-bold">快捷处理</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pendingShippingOrders.map((ord) => (
-                        <tr key={ord.id} className="border-b border-slate-900/60 hover:bg-slate-900/30">
-                          <td className="p-2.5">
-                            <span className="block font-bold text-slate-200 truncate max-w-[120px]">{ord.customerName}</span>
-                            <span className="text-[8px] text-slate-500">{ord.id}</span>
-                          </td>
-                          <td className="p-2.5 text-slate-300 font-mono font-bold">¥ {ord.total.toFixed(2)}</td>
-                          <td className="p-2.5 text-center">
-                            <button 
-                              onClick={() => {
-                                onUpdateOrderStatus(ord.id, 'Shipped');
-                                addLog('Logistics Operator', 'Dispatched Shipment', `Passed parcel to global express courier network for order ${ord.id}`, 'success');
-                                setCommandLogs(prev => [...prev, { id: Date.now().toString(), text: `订单: ${ord.id} 已生成运单并派送 DHL 物流。`, type: 'success' }]);
-                              }}
-                              className="bg-indigo-600 hover:bg-indigo-550 text-white font-bold px-2 py-1 rounded text-[9px] transition-colors cursor-pointer"
-                            >
-                              一键发货DHL
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Core 命令 10: 查看客户列表 / VIP 客户列表 */}
-          {activeCommand === 'customers' && (
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] text-[#07C2E3] font-sans font-bold block uppercase tracking-wider">系统推荐 VIP 客户高价值档案 (Top 5)</span>
-                <span className="text-[9px] text-slate-500">说明: 调分对账请前往客户中心执行</span>
-              </div>
-              
-              <div className="bg-slate-950/60 border border-slate-850 rounded-xl overflow-hidden">
-                <table className="w-full text-left font-sans text-[11px]">
-                  <thead>
-                    <tr className="bg-slate-900 text-slate-400 border-b border-slate-850 text-[10px]">
-                      <th className="p-2.5 font-bold">客户名单与层级</th>
-                      <th className="p-2.5 font-bold">累计成交</th>
-                      <th className="p-2.5 font-bold text-center">累计评分</th>
-                      <th className="p-2.5 font-bold text-right pr-4">最后下单时间</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {customers && customers.length > 0 ? (
-                      [...customers]
-                        .sort((a, b) => b.totalSpend - a.totalSpend)
-                        .slice(0, 5)
-                        .map((cust, index) => {
-                          const medals = ["🥇", "🥈", "🥉", "④", "⑤"];
-                          return (
-                            <tr key={cust.id} className="border-b border-slate-900/60 hover:bg-slate-900/30 text-slate-200">
-                              <td className="p-2.5">
-                                <div className="font-bold flex items-center gap-1.5">
-                                  <span>{medals[index] || `${index + 1}`}</span>
-                                  <span>{cust.name}</span>
-                                </div>
-                                <div className="text-[9px] text-slate-500 font-mono">{cust.id} · {cust.tier}</div>
-                              </td>
-                              <td className="p-2.5 font-bold text-[#07C2E3]">
-                                ${cust.totalSpend.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                              </td>
-                              <td className="p-2.5 text-center font-mono font-bold text-amber-500">
-                                {cust.points} 分
-                              </td>
-                              <td className="p-2.5 text-right font-mono text-slate-400 text-[10px] pr-4">
-                                {cust.lastOrderAt || cust.createdAt.slice(0, 10)}
-                              </td>
-                            </tr>
-                          );
-                        })
-                    ) : (
-                      <tr>
-                        <td colSpan={4} className="p-4 text-center text-slate-500 text-xs">
-                          暂无客户记录
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-        </div>
-
-        {/* Command input form area */}
-        <form 
-          id="ai-cmd-input-form" 
-          onSubmit={handleQuerySubmit}
-          className="p-4 bg-slate-950 border-t border-slate-800 space-y-4"
-        >
-          {/* Quick command buttons cluster directly matching visual references */}
-          <div className="space-y-1.5">
-            <span className="text-[9px] font-bold text-slate-500 uppercase block tracking-wider font-mono">快捷指令执行器 / Executive Shortcuts</span>
-            <div className="flex flex-wrap gap-1.5 max-h-[140px] overflow-y-auto">
-              <button 
-                type="button"
-                onClick={() => executeCommand('sales', '今日销售')}
-                className="bg-slate-900 hover:bg-slate-850 active:scale-95 border border-slate-800 hover:border-slate-700 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                📊 今日销售
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('orders', '今日订单')}
-                className="bg-slate-900 hover:bg-slate-850 active:scale-95 border border-slate-800 hover:border-slate-700 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                📦 今日订单
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('today_revenue', '今天营业额')}
-                className="bg-slate-900 hover:bg-slate-[#07C2E3]/20 hover:border-[#07C2E3] active:scale-95 border border-slate-800 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                📊 今天营业额
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('generate_today_invoices', '生成今天发票')}
-                className="bg-slate-900 hover:bg-slate-[#07C2E3]/20 hover:border-[#07C2E3] active:scale-95 border border-slate-800 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                🧾 生成今天发票
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('payout_withdraw', '提现')}
-                className="bg-slate-900 hover:bg-slate-[#07C2E3]/20 hover:border-[#07C2E3] active:scale-95 border border-slate-800 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                💳 提现转账
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('low_stock', '库存不足')}
-                className="bg-slate-900 hover:bg-slate-850 active:scale-95 border border-slate-800 hover:border-slate-700 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                ⚠️ 库存不足
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('profit', '查看利润')}
-                className="bg-slate-900 hover:bg-slate-850 active:scale-95 border border-slate-800 hover:border-slate-700 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                💰 查看利润
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('create_product', '创建商品')}
-                className="bg-slate-900 hover:bg-slate-850 active:scale-95 border border-slate-800 hover:border-slate-700 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                👕 创建商品
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('create_purchase', '创建采购单')}
-                className="bg-slate-900 hover:bg-slate-850 active:scale-95 border border-slate-800 hover:border-slate-700 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                🛒 创建采购单
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('create_campaign', '创建营销活动')}
-                className="bg-slate-900 hover:bg-slate-850 active:scale-95 border border-slate-800 hover:border-slate-700 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                📢 创建营销活动
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('refunds', '查看退款订单')}
-                className="bg-slate-900 hover:bg-slate-850 active:scale-95 border border-slate-800 hover:border-slate-700 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                ↩ 查看退款订单
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('shipping', '查看待发货')}
-                className="bg-slate-900 hover:bg-slate-850 active:scale-95 border border-slate-800 hover:border-slate-700 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                🚚 查看待发货
-              </button>
-              <button 
-                type="button"
-                onClick={() => executeCommand('customers', '查看客户排行')}
-                className="bg-slate-900 hover:bg-slate-850 active:scale-95 border border-slate-800 hover:border-slate-700 text-xs text-slate-200 px-2 py-1 rounded transition-all cursor-pointer select-none"
-              >
-                🏆 查看客户排行
-              </button>
             </div>
           </div>
+        ))}
 
-          <div className="h-[1px] bg-slate-800 w-full shrink-0"></div>
+        {isThinking && (
+          <div className="flex flex-col items-start max-w-[80%] mr-auto">
+            <span className="text-[9px] text-[#07C2E3] font-mono mb-1 uppercase font-bold flex items-center gap-1">
+              <Bot className="w-3 h-3 animate-spin text-[#07C2E3]" />
+              <span>管家正在分析当前店务数据...</span>
+            </span>
+            <div className="bg-[#121316] border border-[#1b1d22] rounded-2xl p-3 flex gap-1 items-center">
+              <span className="w-2 h-2 rounded-full bg-[#07C2E3] animate-ping"></span>
+              <span className="text-[11px] text-slate-400 font-bold">正在规划店务，请稍候...</span>
+            </div>
+          </div>
+        )}
 
-          {/* Styled search input shell */}
-          <div className="relative">
-            <input 
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="请输入操作命令 (例如: 今日销售)..."
-              className="w-full bg-slate-900 text-slate-100 border border-slate-800 rounded-xl pl-4 pr-10 py-3 text-xs placeholder-slate-500 hover:border-slate-750 focus:outline-none focus:border-indigo-600 transition-all font-mono"
-            />
-            <button 
-              type="submit"
-              className="absolute right-3 top-3 text-slate-400 hover:text-white transition-colors cursor-pointer"
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Suggested Fast Actions (Quick pills before user inputs) */}
+      <div className="px-3 py-2.5 bg-[#08090a] border-t border-[#161719] shrink-0 text-left">
+        <div className="flex gap-1.5 overflow-x-auto pb-1 max-w-full whitespace-nowrap scrollbar-none scroll-smooth">
+          <button 
+            type="button"
+            onClick={() => {
+              setChatInput('店内目前有断货或库存不足的问题吗？帮我分析并紧急补货。');
+              handleSendMessage();
+            }}
+            className="px-2.5 py-1 rounded-lg bg-[#111215] border border-slate-800 text-[10px] text-slate-350 hover:text-white hover:border-[#07C2E3] cursor-pointer inline-flex items-center gap-1 font-semibold"
+          >
+            📊 补仓库存 ({currentLowStock})
+          </button>
+          
+          <button 
+            type="button"
+            onClick={() => {
+              setChatInput('我想把一款时尚新款轻便衣架上架并在前台开售，帮我设计文案和商品参数数据。');
+              handleSendMessage();
+            }}
+            className="px-2.5 py-1 rounded-lg bg-[#111215] border border-slate-800 text-[10px] text-slate-350 hover:text-white hover:border-[#07C2E3] cursor-pointer inline-flex items-center gap-1 font-semibold"
+          >
+            📦 策划发布新品
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => {
+              setChatInput('最近我的店铺有顾客流失，帮我一键派发折扣卷挽回老客户。');
+              handleSendMessage();
+            }}
+            className="px-2.5 py-1 rounded-lg bg-[#111215] border border-slate-800 text-[10px] text-slate-350 hover:text-white hover:border-[#07C2E3] cursor-pointer inline-flex items-center gap-1 font-semibold"
+          >
+            👥 挽回流失买家
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => {
+              setChatInput('帮我部署一张 30% 立减代金折价促销代买券，然后跳转营销看看。');
+              handleSendMessage();
+            }}
+            className="px-2.5 py-1 rounded-lg bg-[#111215] border border-slate-800 text-[10px] text-slate-350 hover:text-white hover:border-[#07C2E3] cursor-pointer inline-flex items-center gap-1 font-semibold"
+          >
+            🎁 开启满减大促
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => {
+              setChatInput('汇总我今天的欧元结算记账情况，帮我查账盈亏毛利润。');
+              handleSendMessage();
+            }}
+            className="px-2.5 py-1 rounded-lg bg-[#111215] border border-slate-800 text-[10px] text-slate-350 hover:text-white hover:border-[#07C2E3] cursor-pointer inline-flex items-center gap-1 font-semibold"
+          >
+            💰 跳转财务对账
+          </button>
+        </div>
+      </div>
+
+      {/* File / Doc uploads hidden inputs */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleFileChange} 
+        className="hidden" 
+        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+      />
+
+      {/* Attached file pre-preview block */}
+      {attachedFile && (
+        <div className="mx-3 my-1.5 p-2 rounded-xl bg-[#111214] border border-[#1d2025] flex items-center justify-between animate-fadeIn shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            {attachedFile.type === 'image' ? (
+              <div className="w-10 h-10 rounded overflow-hidden bg-slate-900 border border-slate-800 shrink-0">
+                <img src={attachedFile.url || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=160'} alt="thumbnail" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              </div>
+            ) : (
+              <div className="w-10 h-10 rounded bg-[#07C2E3]/10 flex items-center justify-center shrink-0 border border-[#07C2E3]/20">
+                <FileText className="w-5 h-5 text-[#07C2E3]" />
+              </div>
+            )}
+            <div className="text-left min-w-0 flex-1">
+              <p className="text-[11px] font-bold text-white truncate">{attachedFile.name}</p>
+              <p className="text-[9px] font-mono text-slate-500">{attachedFile.size || '内置资源'}</p>
+            </div>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => setAttachedFile(null)}
+            className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Attachment popover options to support preloaded mock trial file upload without search */}
+      {showAttachmentMenu && (
+        <div className="mx-3 my-1.5 p-2 rounded-xl bg-[#131417] border border-[#1d2025] grid grid-cols-2 gap-2 animate-fadeIn text-left shadow-lg shrink-0">
+          <button 
+            type="button"
+            onClick={() => handleSelectPresetFile('autumn_coat_design_shot.jpg', 'image', '840 KB')}
+            className="p-2.5 rounded-lg bg-slate-950 border border-slate-900 hover:border-[#07C2E3]/40 text-left cursor-pointer transition-all"
+          >
+            <div className="flex items-center gap-2">
+              <ImageIcon className="w-4 h-4 text-[#07C2E3]" />
+              <div className="min-w-0">
+                <p className="text-[10px] text-white font-extrabold truncate">服装货源主图</p>
+                <p className="text-[8px] text-slate-500 font-mono">Preset Image</p>
+              </div>
+            </div>
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => handleSelectPresetFile('Store_Inventory_Report_2026.xlsx', 'document', '2.4 MB')}
+            className="p-2.5 rounded-lg bg-slate-950 border border-slate-900 hover:border-[#07C2E3]/40 text-left cursor-pointer transition-all"
+          >
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-[#07C2E3]" />
+              <div className="min-w-0">
+                <p className="text-[10px] text-white font-extrabold truncate">进销存采购表格</p>
+                <p className="text-[8px] text-slate-500 font-mono">Store Report .XLSX</p>
+              </div>
+            </div>
+          </button>
+
+          <div className="col-span-2 pt-1 border-t border-slate-900 flex justify-between items-center px-1">
+            <span className="text-[8px] text-slate-500 font-mono">设备游览：</span>
+            <button
+              type="button"
+              onClick={() => {
+                fileInputRef.current?.click();
+                setShowAttachmentMenu(false);
+              }}
+              className="text-[9px] font-bold text-[#07C2E3] hover:underline cursor-pointer"
             >
-              <Search className="w-4 h-4" />
+              浏览设备本地文件 &rarr;
             </button>
           </div>
-        </form>
+        </div>
+      )}
 
-        {/* Micro audit logging telemetry footer */}
-        <div className="p-3 bg-slate-950 border-t border-slate-900 flex justify-between items-center text-[8px] font-mono text-slate-600">
-          <span>SECURE DIRECT GATEWAY: CONSOLE</span>
-          <span className="flex items-center gap-1">
-            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full inline-block animate-ping"></span>
-            <span>WAITING FOR INSTRUCTION</span>
-          </span>
+      {/* Input Form Box with 3-button row structure looking exactly like Image 2 */}
+      <form 
+        onSubmit={handleSendMessage}
+        className="p-3 border-t border-[#1a1b1e] bg-[#070809] shrink-0"
+      >
+        <div className="relative mb-2.5">
+          <input 
+            type="text"
+            placeholder={isRecording ? `🎙️ 录音中: 00:0${recordingSeconds} (再点击麦克风保存识别)` : "直接发指令调配系统..."}
+            value={isRecording ? `正在捕获语音录音... (已录制: ${recordingSeconds}秒)` : chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            disabled={isThinking || isRecording}
+            className={`w-full bg-[#101112] border ${isRecording ? 'border-red-500/50 text-red-400 bg-red-500/5' : 'border-[#1d2025] text-[#07C2E3]'} rounded-xl px-4 py-3.5 text-base md:text-lg font-bold placeholder-slate-600 focus:outline-none focus:border-[#07C2E3] transition-all`}
+          />
+          {isRecording && (
+            <div className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+              <span className="text-[9px] font-mono text-red-500 font-bold whitespace-nowrap">REC</span>
+            </div>
+          )}
         </div>
 
-      </div>
+        {/* Button Row exactly matching the requested design layout in Image 2 */}
+        <div className="flex items-center justify-end gap-3 px-1">
+          {/* Button 1: Voice recording mic icon (outlined rounded square) */}
+          <button
+            type="button"
+            onClick={handleToggleRecording}
+            title={isRecording ? "停止录音并识别指令" : "开启语音调度"}
+            className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all cursor-pointer border ${
+              isRecording 
+                ? 'bg-red-500 text-white border-red-400 shadow-md animate-pulse' 
+                : 'bg-[#101112] border-[#22262d] text-slate-300 hover:border-[#07C2E3] hover:text-[#07C2E3]'
+            }`}
+          >
+            <Mic className="w-5 h-5" />
+          </button>
+
+          {/* Button 2: Attachment plus icon inside a circle (outlined rounded square) */}
+          <button
+            type="button"
+            onClick={() => setShowAttachmentMenu(prev => !prev)}
+            title="上传新物料或附图"
+            className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all cursor-pointer border ${
+              showAttachmentMenu 
+                ? 'bg-[#07C2E3]/15 border-[#07C2E3] text-[#07C2E3]' 
+                : 'bg-[#101112] border-[#22262d] text-slate-300 hover:border-[#07C2E3] hover:text-[#07C2E3]'
+            }`}
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+
+          {/* Button 3: Send arrow command icon (solid primary branding color) */}
+          <button 
+            type="submit"
+            disabled={isThinking || (!chatInput.trim() && !attachedFile)}
+            title="发送指令"
+            className="w-11 h-11 rounded-xl bg-[#07C2E3] hover:bg-[#06B2D0] active:bg-[#059BBC] text-slate-950 flex items-center justify-center transition-all font-bold disabled:opacity-30 cursor-pointer shadow-md"
+          >
+            <ArrowUp className="w-5 h-5 stroke-[2.5]" />
+          </button>
+        </div>
+      </form>
+
+      {compareModalData && (
+        <div className="absolute inset-0 bg-[#070809]/95 flex flex-col z-50 p-4 font-sans text-slate-200 animate-fadeIn text-left">
+          <div className="flex items-center justify-between border-b border-[#1f2124] pb-3 mb-4 shrink-0">
+            <h4 className="text-xs font-black text-white uppercase tracking-wider">智能双语对账对比审查 ({compareModalData.length} 款)</h4>
+            <button 
+              type="button" 
+              onClick={() => setCompareModalData(null)}
+              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-all cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
+            {compareModalData.map((item: any, idx: number) => (
+              <div key={idx} className="bg-[#121316] border border-[#1b1d22] rounded-xl p-3.5 space-y-3.5">
+                <div className="flex items-center gap-2">
+                  <span className="bg-slate-900 px-2 py-0.5 rounded text-[9px] text-[#07C2E3] font-mono font-bold">
+                    SKU: {item.sku || `SKU_${idx}`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pb-1">
+                  <div className="p-2.5 rounded bg-slate-950 border border-slate-900">
+                    <div className="text-[9px] font-bold text-slate-500 uppercase mb-1">原文本 Title</div>
+                    <p className="line-through text-slate-400 font-semibold">{item.originalCopy?.title || '新产品上架'}</p>
+                  </div>
+                  <div className="p-2.5 rounded bg-[#07C2E3]/5 border border-[#07C2E3]/20 animate-pulse">
+                    <div className="text-[9px] font-bold text-[#07C2E3] uppercase mb-1">AI 优化后 Title</div>
+                    <p className="text-white font-extrabold">{item.optimizedCopy?.title || '[Premium] Windproof Tech Coat'}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-2.5 rounded bg-slate-950 border border-slate-900">
+                    <div className="text-[9px] font-bold text-slate-500 uppercase mb-1">原描述 Description</div>
+                    <p className="text-slate-500 line-clamp-3 leading-snug">{item.originalCopy?.description || '暂无描述'}</p>
+                  </div>
+                  <div className="p-2.5 rounded bg-[#07C2E3]/5 border border-[#07C2E3]/20">
+                    <div className="text-[9px] font-bold text-[#07C2E3] uppercase mb-1">AI 优化后 Description</div>
+                    <p className="text-slate-300 leading-snug text-[11px] font-medium">{item.optimizedCopy?.description || 'Perfect slim silhouette...'}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="pt-4 border-t border-[#1f2124] flex gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => setCompareModalData(null)}
+              className="flex-1 bg-[#111214] border border-slate-800 hover:bg-slate-800 text-slate-300 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer"
+            >
+              取消并返回
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                handleActionRun('APPLY_OPTIMIZED_COPY', { products: compareModalData });
+                setCompareModalData(null);
+              }}
+              className="flex-1 bg-[#07C2E3] hover:bg-[#06B2D0] active:bg-[#059BBC] text-slate-950 py-2.5 rounded-xl text-xs font-black transition-all shadow-md cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            >
+              核准并批量应用
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

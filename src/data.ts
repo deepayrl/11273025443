@@ -40,7 +40,7 @@ export const APP_MARK_PRESETS: AppMarketItem[] = [
   { id: 'm5', name: 'SLA Logistics Alerting & Delay Mitigation Knowledge Pack', developer: 'LogiBrain', icon: 'BookOpen', price: '$19/mo', rating: 4.7, category: 'Knowledge Pack', description: 'Pre-formatted FAQ knowledge base, standard response templates, or international shipping delays handbook enabling your AI Support to handle shipping interruptions.', installed: false }
 ];
 
-export const INDUSTRY_PRESETS: Record<IndustryType, {
+export const INDUSTRY_PRESETS: Record<string, {
   metrics: Metric[];
   products: ProductItem[];
   orders: OrderItem[];
